@@ -7,5 +7,5 @@ build/
 
 # Env/config
 .env
-.key
+*.key
 device_log_*.csv
