@@ -20,7 +20,6 @@
 - `assets.csv` — maps device names to facilities
 - `.env` — contains fallback credentials (excluded via .gitignore)
 - `wpa_secrets.enc` — encrypted vault of facility passwords
-- `secret.key` — key used to decrypt `wpa_secrets.enc` (excluded via .gitignore)
 - `device_log_*.csv` — timestamped configuration results
 
 ## Usage
@@ -59,16 +58,16 @@ Create a `.env` file in the project root with the following format:
 
 ```env
 # Device web interface login
-DEVICE_USERNAME=devicelogin
-DEVICE_PASSWORD=devicepassword
+DEVICE_USERNAME=deviceuser
+DEVICE_PASSWORD=devicepass
 
 # Fallback WPA2-Enterprise identity and password
 WPA2_IDENTITY=failed
-WPA2_PASSWORD=yourfailed
+WPA2_PASSWORD=failed
 
 # Optional fallback passwords (used if encrypted secrets are missing)
-serviceaccount1_PASSWORD=password1
-serviceaccount2_PASSWORD=password2
+svcAcct1_PASSWORD=password1
+svcAcct2_PASSWORD=password2
 ```
 
 ### 3. Create `config.ini`
@@ -95,56 +94,53 @@ Prepare a JSON file `wpa_secrets.json` like:
 
 ```json
 {
-  "serviceaccount1": "password1",
-  "serviceaccount1": "password2",
+  "svcAcct1": "password1",
+  "svcAcct2": "password2",
 }
 ```
 
 Then run the following commands:
 
 ```bash
-python secrets_tool.py genkey
-python secrets_tool.py encrypt
+python secrets_tool.py encrypt <yourpassphrasehere>
 ```
 
 This will generate:
-- `secret.key` (your encryption key)
+- `salt.bin` (your encryption key)
 - `wpa_secrets.enc` (your encrypted password vault)
 
-> Both `secret.key` and `wpa_secrets.enc` should **never be committed to Git**. They're ignored via `.gitignore`.
+> Both `salt.bin` and `wpa_secrets.enc` should **never be committed to Git**. They're ignored via `.gitignore`.
 
 
-## Command-Line Arguments
 
-The script currently supports the following interactive use. CLI support can be extended further.
+---
 
-### Future CLI Support (Planned/Optional)
+## 🔐 About Encryption
 
-You can adapt the script to accept CLI arguments instead of interactive prompts. Here’s a pattern you could follow with argparse:
+This project uses strong encryption with a passphrase-derived key and a persistent salt:
 
-```bash
-python plumPy.py --method scan       # scan the subnet
-python plumPy.py --method manual --ips 192.168.1.10,192.168.1.12
+### 🔑 Key Derivation
+
+The WPA2 identity passwords are encrypted using a passphrase + a random salt (`salt.bin`) with PBKDF2-HMAC-SHA256 and 100,000 iterations. This avoids storing raw keys.
+
+### 📁 Important Files
+
+- `wpa_secrets.enc`: the encrypted password vault
+- `salt.bin`: used to derive the encryption key from the passphrase
+- **`secret.key`: no longer used** — you may safely delete it
+
+### ⚙️ Environment Variable
+
+Your passphrase should be provided via an environment variable:
+
+```env
+WPA_SECRET_PASSPHRASE=yourSuperSecurePassphrase
 ```
 
-### Suggested Extensions
+This variable is used by the Python script to decrypt the `wpa_secrets.enc` file at runtime.
 
-Add the following to your script to support non-interactive CLI control:
+### 🚫 Do Not Delete
 
-```python
-import argparse
-
-parser = argparse.ArgumentParser()
-parser.add_argument('--method', choices=['scan', 'manual'], help="Device discovery method")
-parser.add_argument('--ips', help="Comma-separated IP list for manual mode")
-args = parser.parse_args()
-
-if args.method == 'manual' and args.ips:
-    devices = [ip.strip() for ip in args.ips.split(',')]
-else:
-    subnet = get_local_subnet()
-    devices = scan_subnet(subnet)
-```
-
-This makes the tool scriptable and easier to integrate into automation or CI/CD flows.
+- Never delete or overwrite `salt.bin` unless you also re-encrypt your secrets.
+- If you lose the passphrase or `salt.bin`, the encrypted secrets **cannot be recovered**.
 

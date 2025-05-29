@@ -33,13 +33,29 @@ from cryptography.fernet import Fernet
 WPA_SECRET_FILE = 'wpa_secrets.enc'
 WPA_KEY_FILE = 'secret.key'
 
-def load_wpa_secrets():
+def load_wpa_secrets(passphrase):
     try:
-        with open(WPA_KEY_FILE, 'rb') as kf:
-            key = kf.read()
+        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+        from cryptography.hazmat.backends import default_backend
+        from cryptography.hazmat.primitives import hashes
+        import base64
+
+        with open('salt.bin', 'rb') as sf:
+            salt = sf.read()
+
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=100_000,
+            backend=default_backend()
+        )
+        key = base64.urlsafe_b64encode(kdf.derive(passphrase.encode()))
         fernet = Fernet(key)
-        with open(WPA_SECRET_FILE, 'rb') as ef:
+
+        with open('wpa_secrets.enc', 'rb') as ef:
             decrypted = fernet.decrypt(ef.read())
+
         return json.loads(decrypted.decode())
     except Exception as e:
         console.log(f"[red]❌ Failed to load WPA secrets: {e}[/red]")
@@ -298,7 +314,8 @@ def configure_device(ip):
         status["Finalize Config"] = "Success"
 
     except Exception as e:
-        console.print(f"[red]⚠️ Error configuring {ip}: {e}[/red]")
+        console.print(f"[red]⚠️ Error configuring {ip}[/red]")
+        # console.print(f"[red]⚠️ Error configuring {ip}: {e}[/red]")
 
     return status
 
@@ -352,7 +369,11 @@ if __name__ == "__main__":
     robot_acknowledge()
     display_colored_banner()
     beep_progress()
-    WPA_SECRETS = load_wpa_secrets()
+    passphrase = os.getenv("WPA_SECRET_PASSPHRASE", "")
+    WPA_SECRETS = load_wpa_secrets(passphrase)
+    if not WPA_SECRETS:
+        console.log("[red]Fatal: WPA secrets failed to load. Exiting.[/red]")
+        exit(1)
 
     while True:
         console.print("\n[bold magenta]📌 Choose input method:[/bold magenta]")

@@ -16,7 +16,7 @@ build/
 
 # Secrets and config
 .env
-secret.key
+salt.bin
 wpa_secrets.json
 wpa_secrets.enc
 
