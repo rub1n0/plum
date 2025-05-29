@@ -6,6 +6,7 @@ build/
 *.spec
 *.key
 *.json
+*.enc
 
 # Env/config
 .env
