@@ -4,8 +4,9 @@ __pycache__/
 dist/
 build/
 *.spec
+*.key
+*.json
 
 # Env/config
 .env
-*.key
 device_log_*.csv

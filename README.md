@@ -24,13 +24,6 @@ python plumPy.py
 - `assets.csv` — maps devices to credentials
 - `.env` — contains sensitive creds (excluded)
 
-## Build as .exe
-
-```bash
-pip install -r requirements.txt
-pyinstaller plumPy.spec
-```
-
 ## License
 
 MIT
