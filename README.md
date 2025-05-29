@@ -127,7 +127,6 @@ The WPA2 identity passwords are encrypted using a passphrase + a random salt (`s
 
 - `wpa_secrets.enc`: the encrypted password vault
 - `salt.bin`: used to derive the encryption key from the passphrase
-- **`secret.key`: no longer used** — you may safely delete it
 
 ### ⚙️ Environment Variable
 
