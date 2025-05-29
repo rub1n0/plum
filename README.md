@@ -19,7 +19,6 @@
 - `config.ini` — wireless and security configuration
 - `assets.csv` — maps device names to facilities
 - `.env` — contains fallback credentials (excluded via .gitignore)
-- `wpa_secrets.enc` — encrypted vault of facility passwords
 - `device_log_*.csv` — timestamped configuration results
 
 ## Usage
