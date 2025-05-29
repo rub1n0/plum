@@ -130,22 +130,24 @@ def scan_host(ip_str):
         pass
     return None
 
-def get_local_subnet(fallback="192.168.1.0/24"):
+
+def get_local_subnets(fallback="192.168.1.0/24"):
+    subnets = []
     for interface, snics in psutil.net_if_addrs().items():
         console.print(f"🔍 [purple]Checking interface:[/purple] {interface}")
         for snic in snics:
-            console.print(f"🔍 [purple]Checking NIC:[/purple] {snic.address}")
             if snic.family == socket.AF_INET and not snic.address.startswith("127."):
                 ip = snic.address
                 netmask = snic.netmask
                 try:
                     network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
                     if network.prefixlen < 32:
-                        console.print(f"🌐 [purple]Detected local subnet:[/purple] {network}")
-                        return str(network)
+                        console.print(f"🌐 [purple]Detected subnet:[/purple] {network}")
+                        subnets.append(str(network))
                 except Exception:
                     continue
-    return fallback
+    return subnets if subnets else [fallback]
+
 
 def scan_subnet(subnet, max_threads=100):
     network = ipaddress.ip_network(subnet, strict=False)
@@ -175,6 +177,8 @@ USERNAME = os.getenv("DEVICE_USERNAME")
 DEVICE_PASSWORD = os.getenv("DEVICE_PASSWORD")
 WPA_IDENTITY = os.getenv("WPA2_IDENTITY")
 WPA_PASSWORD = os.getenv("WPA2_PASSWORD")
+passphrase = os.getenv("WPA_SECRET_PASSPHRASE", "")
+user_subnet = os.getenv("DEFAULT_SUBNET", "")
 
 # Load INI configuration
 config = configparser.ConfigParser()
@@ -369,7 +373,7 @@ if __name__ == "__main__":
     robot_acknowledge()
     display_colored_banner()
     beep_progress()
-    passphrase = os.getenv("WPA_SECRET_PASSPHRASE", "")
+
     WPA_SECRETS = load_wpa_secrets(passphrase)
     if not WPA_SECRETS:
         console.log("[red]Fatal: WPA secrets failed to load. Exiting.[/red]")
@@ -382,10 +386,19 @@ if __name__ == "__main__":
         method = input(">> ").strip()
 
         if method == "2":
-            devices = get_ip_list_from_user()
+            devices = get_ip_list_from_user()   
         else:
-            subnet = get_local_subnet()
-            devices = scan_subnet(subnet)
+            devices = []
+            if user_subnet:
+                try:
+                    console.print(f"🌐 [cyan]Scanning only subnet from .env:[/cyan] {user_subnet}")
+                    found = scan_subnet(user_subnet)
+                    if found:
+                        devices.extend(found)
+                except Exception as e:
+                    console.log(f"[red]❌ Failed to scan {user_subnet}: {e}[/red]")
+            else:
+                console.log("[red]No DEFAULT_SUBNET provided. Skipping scan.[/red]")
 
         beep_progress()
         results = [configure_device(ip) for ip in devices]
