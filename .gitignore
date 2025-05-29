@@ -1,0 +1,10 @@
+# Runtime & IDE
+__pycache__/
+*.pyc
+dist/
+build/
+*.spec
+
+# Env/config
+.env
+device_log_*.csv
