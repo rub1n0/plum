@@ -26,6 +26,25 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Initialize pygame mixer for sound playback
 pygame.mixer.init(frequency=44100, size=-16, channels=1)
 console = Console()
+
+import json
+from cryptography.fernet import Fernet
+
+WPA_SECRET_FILE = 'wpa_secrets.enc'
+WPA_KEY_FILE = 'secret.key'
+
+def load_wpa_secrets():
+    try:
+        with open(WPA_KEY_FILE, 'rb') as kf:
+            key = kf.read()
+        fernet = Fernet(key)
+        with open(WPA_SECRET_FILE, 'rb') as ef:
+            decrypted = fernet.decrypt(ef.read())
+        return json.loads(decrypted.decode())
+    except Exception as e:
+        console.log(f"[red]❌ Failed to load WPA secrets: {e}[/red]")
+        return {}
+
 results = []
 
 # Sound tone generation functions
@@ -139,7 +158,7 @@ load_dotenv()
 USERNAME = os.getenv("DEVICE_USERNAME")
 DEVICE_PASSWORD = os.getenv("DEVICE_PASSWORD")
 WPA_IDENTITY = os.getenv("WPA2_IDENTITY")
-DEFAULT_PASS = os.getenv("WPA2_PASSWORD")
+WPA_PASSWORD = os.getenv("WPA2_PASSWORD")
 
 # Load INI configuration
 config = configparser.ConfigParser()
@@ -181,11 +200,21 @@ except FileNotFoundError:
     console.log("[yellow]Warning: assets.csv not found. Falling back to default WPA2 credentials.[/yellow]")
 
 
+
 def resolve_credentials(device_name):
     facility = ASSET_MAP.get(device_name)
     if facility and facility in FACILITY_MAP:
-        return FACILITY_MAP[facility], DEFAULT_PASS
-    return WPA_IDENTITY, DEFAULT_PASS
+        identity = FACILITY_MAP[facility]
+        password = WPA_SECRETS.get(identity)
+        if not password:
+            console.log(f"[yellow]⚠️ No encrypted password for {identity}. Falling back to WPA2_PASSWORD.[/yellow]")
+            password = WPA_PASSWORD
+        return identity, password
+    return WPA_IDENTITY, WPA_PASSWORD
+
+    if facility and facility in FACILITY_MAP:
+        return FACILITY_MAP[facility], WPA_PASSWORD
+    return WPA_IDENTITY, WPA_PASSWORD
 
 
 def configure_device(ip):
@@ -310,15 +339,33 @@ def display_colored_banner():
     """
     console.print(banner, style="purple")
 
+
+def get_ip_list_from_user():
+    console.print("\n[bold cyan]📄 Enter a comma-separated list of IPs (e.g., 192.168.1.10,192.168.1.12):[/bold cyan]")
+    ip_input = input(">> ").strip()
+    return [ip.strip() for ip in ip_input.split(",") if ip.strip()]
+
+
+
 if __name__ == "__main__":
     console.clear()
     robot_acknowledge()
     display_colored_banner()
     beep_progress()
-    subnet = get_local_subnet()
-    beep_progress()
+    WPA_SECRETS = load_wpa_secrets()
+
     while True:
-        devices = scan_subnet(subnet)
+        console.print("\n[bold magenta]📌 Choose input method:[/bold magenta]")
+        console.print("[1] Scan subnet automatically")
+        console.print("[2] Enter IP list manually")
+        method = input(">> ").strip()
+
+        if method == "2":
+            devices = get_ip_list_from_user()
+        else:
+            subnet = get_local_subnet()
+            devices = scan_subnet(subnet)
+
         beep_progress()
         results = [configure_device(ip) for ip in devices]
         robot_alert()
