@@ -1,13 +1,24 @@
-# Runtime & IDE
+# Bytecode and cache
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.swp
+
+# Logs and system files
+*.log
+*.bak
+
+# Compiled output
 dist/
 build/
 *.spec
-*.key
-*.json
-*.enc
 
-# Env/config
+# Secrets and config
 .env
+secret.key
+wpa_secrets.json
+wpa_secrets.enc
+
+# Runtime output
 device_log_*.csv
