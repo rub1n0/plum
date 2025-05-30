@@ -18,7 +18,6 @@ import psutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import configparser
-import traceback
 
 # Disable SSL warnings for self-signed certificates
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
