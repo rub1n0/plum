@@ -14,6 +14,7 @@ from ipaddress import ip_network
 import urllib3
 import numpy as np
 import psutil
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 import configparser
@@ -64,7 +65,7 @@ def load_wpa_secrets(passphrase):
 
         return json.loads(decrypted.decode())
     except Exception as e:
-        console.log(f"[red]❌ Failed to load WPA secrets: {e}[/red]")
+        console.log(f"[red]Failed to load WPA secrets: {e}[/red]")
         return {}
 
 results = []
@@ -126,6 +127,12 @@ def robot_alert():
     generate_modulated_tone(200, 75, 400).play()
     time.sleep(0.5)
 
+def robot_aha():
+    tone1 = generate_sweep(400, 800, 150)  # Rising tone
+    tone2 = generate_modulated_tone(750, 40, 120)  # Wobble/glitchy overlay
+    tone1.play()
+    time.sleep(0.15)
+    tone2.play()
 
 def game_over_tune():
     play_sequence([784, 880, 988], duration=180)     # G5, A5, B5
@@ -139,9 +146,11 @@ def game_over_tune():
     play_sequence([659, 523], duration=400)  # E5, C5
 
 def victory_fanfare():
-    play_sequence([523, 659, 784, 880], duration=180)  # C5, E5, G5, A5
-    time.sleep(0.2)
-    play_sequence([988, 1046], duration=200)           # B5, C6
+    def _fanfare():
+        play_sequence([523, 659, 784, 880], duration=180)
+        time.sleep(0.2)
+        play_sequence([988, 1046], duration=200)
+    threading.Thread(target=_fanfare, daemon=True).start()
 
 def boss_defeated_tune():
     play_sequence([1046, 988, 880], duration=200)      # C6, B5, A5
@@ -165,14 +174,13 @@ def task_success_tune():
 
 def scan_host(ip_str):
     try:
-        socket.setdefaulttimeout(0.3)
+        socket.setdefaulttimeout(SocketTimeout)
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             if s.connect_ex((ip_str, 8443)) == 0:
                 return ip_str
     except Exception as e:
-        console.log(f"[yellow]⚠️ Error connecting to {ip_str}: {e}[/yellow]")
+        console.log(f"[yellow]Error connecting to {ip_str}: {e}[/yellow]")
     return None
-
 
 
 def get_local_subnets(fallback="192.168.1.0/24"):
@@ -184,7 +192,7 @@ def get_local_subnets(fallback="192.168.1.0/24"):
     for interface, snics in psutil.net_if_addrs().items():
         if interface in EXCLUDED_IF_NAMES or interface.startswith(EXCLUDED_PREFIXES):
             continue
-        console.print(f"🔍 [purple]Checking interface:[/purple] {interface}")
+        console.print(f"[purple]Checking interface:[/purple] {interface}")
         for snic in snics:
             if snic.family == socket.AF_INET and not snic.address.startswith("127."):
                 ip = snic.address
@@ -193,7 +201,7 @@ def get_local_subnets(fallback="192.168.1.0/24"):
                     network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
                     if network.prefixlen < 32:
                         subnet_str = str(network)
-                        console.print(f"🌐 [purple]Detected subnet:[/purple] {subnet_str}")
+                        console.print(f"[purple]Detected subnet:[/purple] {subnet_str}")
                         subnets.append(subnet_str)
                         checked_interfaces.append((interface, subnet_str))
                 except Exception:
@@ -208,7 +216,7 @@ def scan_subnet(subnet, max_threads=100):
     hosts_list = list(network.hosts())
     live_hosts = []
 
-    console.print(f"🌐 [purple]Scanning subnet:[/purple] [white]{subnet}[/white] [purple]with:[/purple] [white]{max_threads}[/white] [purple]threads...[/purple]")
+    console.print(f"[purple]Scanning subnet:[/purple] [white]{subnet}[/white] [purple]with:[/purple] [white]{max_threads}[/white] [purple]threads...[/purple]")
     with Progress(SpinnerColumn(), "[progress.description]{task.description}", BarColumn(), TimeElapsedColumn(), transient=True) as progress:
         task = progress.add_task("[purple]📡 Probing...", total=len(hosts_list))
         with ThreadPoolExecutor(max_workers=max_threads) as executor:
@@ -216,6 +224,7 @@ def scan_subnet(subnet, max_threads=100):
             for future in as_completed(futures):
                 result = future.result()
                 if result:
+                    robot_aha()
                     live_hosts.append(result)
                 progress.advance(task)
 
@@ -245,6 +254,7 @@ EAPType = os.path.expandvars(config.get("Security", "EAPType"))
 Encryption = os.path.expandvars(config.get("Security", "Encryption"))
 ValidateCert = os.path.expandvars(config.get("Security", "ValidateCert"))
 AnonIdentity = os.path.expandvars(config.get("Security", "AnonymousIdentity"))
+SocketTimeout = float(os.path.expandvars(config.get("Network", "SocketTimeout", fallback="1.0")))
 
 # Validate configuration values
 if SecurityType not in ["enterprise", "personal"]:
@@ -281,7 +291,7 @@ def resolve_credentials(device_name):
         identity = FACILITY_MAP[facility]
         password = WPA_SECRETS.get(identity)
         if not password:
-            console.log(f"[yellow]⚠️ No encrypted password for {identity}. Falling back to WPA2_PASSWORD.[/yellow]")
+            console.log(f"[yellow]No encrypted password for {identity}. Falling back to WPA2_PASSWORD.[/yellow]")
             password = WPA_PASSWORD
         return identity, password
     return WPA_IDENTITY, WPA_PASSWORD
@@ -311,11 +321,11 @@ def configure_device(ip):
         login_data = {"webUser": USERNAME, "webPass": DEVICE_PASSWORD, "NextPage": "eth"}
         resp = session.post(login_url, data=login_data)
         if "Status" not in resp.text:
-            console.print(f"[red]🚫 Login failed for {ip}[/red]")
+            console.print(f"[red]Login failed for {ip}[/red]")
             error_alert_tune()
             return status
 
-        console.print(f"[green]✅ Login successful for {ip}[/green]")
+        console.print(f"[green]Login successful for {ip}[/green]")
         status["Login"] = "Success"
         device_name = re.search(r'var\s+deviceName\s*=\s*"([^"]+)"', resp.text)
         if device_name:
@@ -373,8 +383,8 @@ def configure_device(ip):
         status["Finalize Config"] = "Success"
 
     except Exception as e:
-        console.print(f"[red]⚠️ Error configuring {ip}[/red]")
-        # console.print(f"[red]⚠️ Error configuring {ip}: {e}[/red]")
+        console.print(f"[red]Error configuring {ip}[/red]")
+        # console.print(f"[red]Error configuring {ip}: {e}[/red]")
 
     return status
 
@@ -386,7 +396,7 @@ if FrequencyBand not in ["11a", "11b/g"]:
 
 def save_log(results):
     if not results:
-        console.log("[yellow]⚠️ No results to save.[/yellow]")
+        console.log("[yellow]No results to save.[/yellow]")
         return False
     today = datetime.date.today().strftime('%Y-%m-%d')
     filename = f"device_log_{today}.csv"
@@ -400,7 +410,7 @@ def save_log(results):
     return True
 
 def show_summary(results):
-    table = Table(title="📟 Plum Configurator Results", title_style="purple", border_style="bright_cyan")
+    table = Table(title="Plum Configurator Results", title_style="purple", border_style="bright_cyan")
     for k in results[0].keys():
         table.add_column(k, style="green" if "Success" in k or "IP" in k else "cyan", overflow="fold")
     for entry in results:
@@ -419,32 +429,31 @@ def display_colored_banner():
                       THE CONFIGUNATOR OF PLUMS!
     """
     console.print(banner, style="purple")
-    task_success_tune()
 
 def get_ip_list_from_user():
-    console.print("\n[bold cyan]📄 Enter a comma-separated list of IPs (e.g., 192.168.1.10,192.168.1.12):[/bold cyan]")
+    console.print("\n[bold cyan]Enter a comma-separated list of IPs (e.g., 192.168.1.10,192.168.1.12):[/bold cyan]")
     ip_input = input(">> ").strip()
     return [ip.strip() for ip in ip_input.split(",") if ip.strip()]
 
 def show_checked_interfaces(interfaces, label_active=None):
     if not interfaces:
-        console.print("[red]❌ No interfaces detected.[/red]")
+        console.print("[red]No interfaces detected.[/red]")
         return
 
-    table = Table(title="🔍 Checked Interfaces", title_style="bold magenta", border_style="cyan")
+    table = Table(title="Checked Interfaces", title_style="bold magenta", border_style="cyan")
     table.add_column("Interface", style="green")
     table.add_column("Detected Subnet", style="cyan")
     table.add_column("Status", style="yellow")
 
     for iface, subnet in interfaces:
-        status = "✅ Selected" if label_active and ipaddress.ip_network(subnet) == ipaddress.ip_network(label_active) else ""
+        status = "Selected" if label_active and ipaddress.ip_network(subnet) == ipaddress.ip_network(label_active) else ""
         table.add_row(iface, subnet, status)
 
     console.print(table)
 
 def get_user_selected_interface(interfaces, active_subnet=None):
     if not interfaces:
-        console.print("[red]❌ No valid interfaces found to select from.[/red]")
+        console.print("[red]No valid interfaces found to select from.[/red]")
         return None
 
     table = Table(title="📡 Available Interfaces", title_style="bold magenta", border_style="cyan")
@@ -510,15 +519,15 @@ if __name__ == "__main__":
                 console.print("[red]No interface selected. Exiting.[/red]")
                 exit(1)
 
-        console.print(f"[green]📡 Scanning subnet:[/green] {selected_subnet}")
+        console.print(f"[green]Scanning subnet:[/green] {selected_subnet}")
         devices = scan_subnet(selected_subnet)
 
         results = [configure_device(ip) for ip in devices]
         robot_alert()
 
         if not results:
-            console.print("[blue]ℹ️ No devices were found or responded in this subnet.[/blue]")
-            console.print("[bold yellow]🔁 Do you want to choose a different interface? (y/n)[/bold yellow]")
+            console.print("[blue]No devices were found or responded in this subnet.[/blue]")
+            console.print("[bold yellow]Do you want to choose a different interface? (y/n)[/bold yellow]")
             try_again = input(">> ").strip().lower()
             if try_again == "y":
                 selected_subnet = None
@@ -531,7 +540,7 @@ if __name__ == "__main__":
                 show_summary(results)
             beep_triumph()
 
-        console.print("\n[bold yellow]🔁 Do you want to run the script again? (y/n) [type 'c' to change interface][/bold yellow]")
+        console.print("\n[bold yellow]Do you want to run the script again? (y/n) [type 'c' to change interface][/bold yellow]")
         answer = input(">> ").strip().lower()
         if answer == "c":
             selected_subnet = None
@@ -548,5 +557,6 @@ if __name__ == "__main__":
 
     beep_triumph()
     time.sleep(0.25)
+    console.print("[bold green]Committing log entries. [/bold green]")
     game_over_tune()
-    console.print("[bold green]🎉 Thank you for using the Plum Configurator! Goodbye![/bold green]")
+    console.print("[bold green]Mission accomplished. Go do something human now.[/bold green]")
