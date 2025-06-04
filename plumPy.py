@@ -451,7 +451,7 @@ def get_user_selected_interface(interfaces, active_subnet=None):
         console.print("[red]No valid interfaces found to select from.[/red]")
         return None
 
-    table = Table(title="📡 Available Interfaces", title_style="bold magenta", border_style="cyan")
+    table = Table(title="Available Interfaces", title_style="bold magenta", border_style="cyan")
     table.add_column("Index", style="yellow")
     table.add_column("Interface", style="green")
     table.add_column("Detected Subnet", style="cyan")
