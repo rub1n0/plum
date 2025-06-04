@@ -296,11 +296,6 @@ def resolve_credentials(device_name):
         return identity, password
     return WPA_IDENTITY, WPA_PASSWORD
 
-    if facility and facility in FACILITY_MAP:
-        return FACILITY_MAP[facility], WPA_PASSWORD
-    return WPA_IDENTITY, WPA_PASSWORD
-
-
 def configure_device(ip):
     session = requests.Session()
     session.verify = False
