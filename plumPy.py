@@ -38,7 +38,6 @@ pygame.mixer.init(frequency=44100, size=-16, channels=1)
 console = Console()
 
 WPA_SECRET_FILE = 'wpa_secrets.enc'
-WPA_KEY_FILE = 'secret.key'
 
 def load_wpa_secrets(passphrase):
     try:
@@ -241,7 +240,6 @@ DEVICE_PASSWORD = os.getenv("DEVICE_PASSWORD")
 WPA_IDENTITY = os.getenv("WPA2_IDENTITY")
 WPA_PASSWORD = os.getenv("WPA2_PASSWORD")
 passphrase = os.getenv("WPA_SECRET_PASSPHRASE", "")
-user_subnet = os.getenv("DEFAULT_SUBNET", "")
 
 # Load INI configuration
 config = configparser.ConfigParser()
@@ -295,11 +293,6 @@ def resolve_credentials(device_name):
             password = WPA_PASSWORD
         return identity, password
     return WPA_IDENTITY, WPA_PASSWORD
-
-    if facility and facility in FACILITY_MAP:
-        return FACILITY_MAP[facility], WPA_PASSWORD
-    return WPA_IDENTITY, WPA_PASSWORD
-
 
 def configure_device(ip):
     session = requests.Session()
@@ -388,11 +381,6 @@ def configure_device(ip):
 
     return status
 
-# Validate configuration values
-if SecurityType not in ["enterprise", "personal"]:
-    raise ValueError(f"Unsupported security type: {SecurityType}")
-if FrequencyBand not in ["11a", "11b/g"]:
-    raise ValueError(f"Unsupported frequency band: {FrequencyBand}")
 
 def save_log(results):
     if not results:
