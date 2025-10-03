@@ -1,8 +1,7 @@
-python-dotenv==1.0.1
-requests==2.31.0
-beautifulsoup4==4.12.3
-rich==13.7.1
-pygame==2.5.2
-numpy==1.26.4
-psutil==5.9.8
-cryptography==42.0.5
+python-dotenv
+requests
+beautifulsoup4
+rich
+pygame
+numpy
+psutil
