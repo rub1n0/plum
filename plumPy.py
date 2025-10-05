@@ -260,6 +260,7 @@ FACILITY_MAP = {
     "Scripps Mercy Hospital San Diego Campus": "svcICUPlum360-SD",
     "Scripps Memorial Hospital La Jolla Campus": "svcICUPlum360-LJ",
     "Scripps Mercy Hospital Chula Vista Campus": "svcICUPlum360-CV",
+    "Scripps Center for Learning and Innovation": "svcICUPlum360-CFLI",
 }
 
 ASSET_MAP = {}
