@@ -508,7 +508,7 @@ if __name__ == "__main__":
 
         if not results:
             console.print("[blue] No devices were found or responded in this subnet.[/blue]")
-            console.print("[bold yellow]= Do you want to choose a different interface? (y/n)[/bold yellow]")
+            console.print("[bold yellow]= Do you want to choose a different interface? (y/n)[/bold yellow]")
             try_again = input(">> ").strip().lower()
             if try_again == "y":
                 selected_subnet = None
@@ -521,7 +521,7 @@ if __name__ == "__main__":
                 show_summary(results)
             beep_triumph()
 
-        console.print("\n[bold yellow]= Do you want to run the script again? (y/n) [type 'c' to change interface][/bold yellow]")
+        console.print("\n[bold yellow]= Do you want to run the script again? (y/n) [type 'c' to change interface][/bold yellow]")
         answer = input(">> ").strip().lower()
         if answer == "c":
             selected_subnet = None
