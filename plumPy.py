@@ -731,8 +731,8 @@ def display_colored_banner():
     console.print(banner, style="purple")
     subtitle = (
         '    The Jennifer "Packet Maven" Lemelle and Brandon "Kernel" Chorny\n'
-        "        Memorial Plumbot Infusion Device Programmer Version\n" \
-        "                    Commit. Compile. Conquer.\n"
+        "          Memorial Plumbot Infusion Device Programmer Version\n" \
+        "                      Commit. Compile. Conquer.\n"
     )
     console.print(subtitle, style="purple")
     task_success_tune()
