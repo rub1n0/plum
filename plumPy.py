@@ -213,6 +213,17 @@ def get_device_name(html_text):
     match = re.search(r'var\s+deviceName\s*=\s*\"([^\"]+)\"', html_text)
     return match.group(1).strip() if match else "Unknown"
 
+def is_valid_asset_number(value):
+    return bool(re.fullmatch(r"\d{6}", str(value).strip()))
+
+def prompt_for_asset_number():
+    while True:
+        console.print("[bold yellow]=  Device asset number is not set. Enter the 6-digit asset number:[/bold yellow]")
+        entered = input(">> ").strip()
+        if is_valid_asset_number(entered):
+            return entered
+        console.print("[red]Invalid asset number. Please enter exactly 6 digits.[/red]")
+
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"))
 USERNAME = os.getenv("DEVICE_USERNAME")
@@ -311,6 +322,8 @@ def configure_device(ip):
             device_name = device_name.group(1).strip()
         else:
             device_name = "Unknown"
+        if not is_valid_asset_number(device_name):
+            device_name = prompt_for_asset_number()
         status["BEIC"] = device_name
 
         identity, password = resolve_credentials(device_name)
