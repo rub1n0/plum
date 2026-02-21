@@ -38,6 +38,7 @@ SALT_FILE = os.path.join(BASE_DIR, "salt.bin")
 CONFIG_FILE = os.path.join(BASE_DIR, "config.ini")
 ASSETS_FILE = os.path.join(BASE_DIR, "assets.csv")
 LOG_FILE = os.path.join(BASE_DIR, "plumPy_error.log")
+STATUS_DUMP_DIR = os.path.join(BASE_DIR, "status_dumps")
 
 logging.basicConfig(
     filename=LOG_FILE,
@@ -247,6 +248,19 @@ def get_manifest_from_status(html_text):
         len(html_text or "")
     )
     return None
+
+def write_status_dump(html_text, ip, label="status"):
+    try:
+        os.makedirs(STATUS_DUMP_DIR, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_ip = ip.replace(":", "_")
+        filename = f"{label}_{safe_ip}_{ts}.html"
+        path = os.path.join(STATUS_DUMP_DIR, filename)
+        with open(path, "w", encoding="utf-8", errors="replace") as f:
+            f.write(html_text or "")
+        logging.error("Wrote status page dump to %s", path)
+    except Exception:
+        logging.exception("Failed to write status page dump for ip=%s", ip)
 
 def format_manifest_for_display(manifest_text):
     if not manifest_text:
@@ -458,6 +472,8 @@ def configure_device(ip):
                 if status_page and status_page.text:
                     serial = get_serial_from_status(status_page.text)
                     manifest_text = get_manifest_from_status(status_page.text)
+                    if not manifest_text:
+                        write_status_dump(status_page.text, ip, label="status_missing_manifest")
                     if serial:
                         mapped_asset = ASSET_BY_SERIAL.get(serial)
                         if mapped_asset and is_valid_asset_number(mapped_asset):
