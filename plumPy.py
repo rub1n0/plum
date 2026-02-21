@@ -240,7 +240,13 @@ def get_serial_from_status(html_text):
 
 def get_manifest_from_status(html_text):
     manifest_match = re.search(r'var\s+plumAPlusDeviceManifest\s*=\s*"([^"]*)"', html_text, re.DOTALL)
-    return manifest_match.group(1) if manifest_match else None
+    if manifest_match:
+        return manifest_match.group(1)
+    logging.error(
+        "Manifest not found in status page. html_len=%s",
+        len(html_text or "")
+    )
+    return None
 
 def format_manifest_for_display(manifest_text):
     if not manifest_text:
@@ -366,6 +372,14 @@ def configure_device(ip):
         try:
             resp = session.post(url, data=data, timeout=REQUEST_TIMEOUT)
             time.sleep(POST_DELAY_SEC)
+            if resp is not None and resp.status_code >= 400:
+                logging.error(
+                    "POST non-OK (%s) url=%s status=%s response_len=%s",
+                    step_name,
+                    url,
+                    resp.status_code,
+                    len(resp.text or "")
+                )
             return True, False
         except Exception as e:
             status = None
@@ -385,7 +399,16 @@ def configure_device(ip):
 
     def get_step(url, step_name):
         try:
-            return session.get(url, timeout=REQUEST_TIMEOUT), False
+            resp = session.get(url, timeout=REQUEST_TIMEOUT)
+            if resp is not None and resp.status_code >= 400:
+                logging.error(
+                    "GET non-OK (%s) url=%s status=%s response_len=%s",
+                    step_name,
+                    url,
+                    resp.status_code,
+                    len(resp.text or "")
+                )
+            return resp, False
         except Exception as e:
             fatal = isinstance(e, (ConnectTimeout, ConnectionError, ReadTimeout))
             logging.exception("GET failed (%s) url=%s", step_name, url)
