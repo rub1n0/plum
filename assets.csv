@@ -1,4 +1,4 @@
-asset,facility,state
+asset,facility,state,serial
 160621,Scripps Mercy Hospital San Diego Campus,In Service
 160624,Scripps Mercy Hospital San Diego Campus,In Service
 162360,Scripps Mercy Hospital Chula Vista Campus,In Service
@@ -3167,4 +3167,4 @@ asset,facility,state
 206490,Scripps Memorial Hospital La Jolla Campus,In Service
 206862,Scripps Memorial Hospital La Jolla Campus,In Service
 160181,Scripps Memorial Hospital La Jolla Campus,In Service
-161499,Scripps Memorial Hospital La Jolla Campus,In Service
+161499,Scripps Memorial Hospital La Jolla Campus,In Service,43433292

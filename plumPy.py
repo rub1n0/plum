@@ -229,6 +229,10 @@ def get_device_name(html_text):
     match = re.search(r'var\s+deviceName\s*=\s*\"([^\"]+)\"', html_text)
     return match.group(1).strip() if match else "Unknown"
 
+def get_serial_from_status(html_text):
+    match = re.search(r"Serial Number:\s*([0-9A-Za-z]+)", html_text)
+    return match.group(1).strip() if match else None
+
 def is_valid_asset_number(value):
     return bool(re.fullmatch(r"\d{6}", str(value).strip()))
 
@@ -288,13 +292,18 @@ FACILITY_MAP = {
 }
 
 ASSET_MAP = {}
+ASSET_BY_SERIAL = {}
 try:
     with open(ASSETS_FILE, newline="") as f:
         reader = csv.reader(f)
         for row in reader:
             if len(row) >= 2:
-                asset, facility = row[0].strip(), row[1].strip()
+                asset = row[0].strip()
+                facility = row[1].strip()
+                serial = row[3].strip() if len(row) > 3 else ""
                 ASSET_MAP[asset] = facility
+                if serial:
+                    ASSET_BY_SERIAL[serial] = asset
 except FileNotFoundError:
     console.log("[yellow]Warning: assets.csv not found. Falling back to default WPA2 credentials.[/yellow]")
     logging.exception("assets.csv not found.")
@@ -392,7 +401,16 @@ def configure_device(ip):
         else:
             device_name = "Unknown"
         if not is_valid_asset_number(device_name):
-            device_name = prompt_for_asset_number()
+            status_page, _status_fatal = get_step(f"{base_url}/hsp-phx-ce-status.html", "status_get")
+            if status_page and status_page.text:
+                serial = get_serial_from_status(status_page.text)
+                if serial:
+                    mapped_asset = ASSET_BY_SERIAL.get(serial)
+                    if mapped_asset and is_valid_asset_number(mapped_asset):
+                        console.print(f"[green]=  Resolved asset {mapped_asset} from serial {serial}[/green]")
+                        device_name = mapped_asset
+            if not is_valid_asset_number(device_name):
+                device_name = prompt_for_asset_number()
         status["BEIC"] = device_name
 
         identity, password = resolve_credentials(device_name)
