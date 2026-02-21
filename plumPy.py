@@ -1,3 +1,5 @@
+# add the ability to choose what confuguration steps to run (wifi, eth, both)
+
 import os
 import csv
 import time
@@ -19,6 +21,10 @@ import configparser
 import json
 from cryptography.fernet import Fernet
 import warnings
+import logging
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from requests.exceptions import ConnectTimeout, ConnectionError, ReadTimeout
 warnings.filterwarnings("ignore", category=UserWarning)
 
 # Disable SSL warnings for self-signed certificates
@@ -31,11 +37,20 @@ WPA_SECRET_FILE = os.path.join(BASE_DIR, "wpa_secrets.enc")
 SALT_FILE = os.path.join(BASE_DIR, "salt.bin")
 CONFIG_FILE = os.path.join(BASE_DIR, "config.ini")
 ASSETS_FILE = os.path.join(BASE_DIR, "assets.csv")
+LOG_FILE = os.path.join(BASE_DIR, "plumPy_error.log")
+
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.ERROR,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    filemode="w"
+)
 
 def load_wpa_secrets(passphrase):
     try:
         if not passphrase:
             console.log("[red]L WPA_SECRET_PASSPHRASE is empty or missing.[/red]")
+            logging.error("WPA_SECRET_PASSPHRASE is empty or missing.")
             return {}
         from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
         from cryptography.hazmat.backends import default_backend
@@ -61,6 +76,7 @@ def load_wpa_secrets(passphrase):
         return json.loads(decrypted.decode())
     except Exception as e:
         console.log(f"[red]L Failed to load WPA secrets: {e}[/red]")
+        logging.exception("Failed to load WPA secrets.")
         return {}
 
 results = []
@@ -244,6 +260,15 @@ EAPType = os.path.expandvars(config.get("Security", "EAPType"))
 Encryption = os.path.expandvars(config.get("Security", "Encryption"))
 ValidateCert = os.path.expandvars(config.get("Security", "ValidateCert"))
 AnonIdentity = os.path.expandvars(config.get("Security", "AnonymousIdentity"))
+WEB_PASSWORD = os.path.expandvars(config.get("Admin", "WebPassword"))
+CHALLENGE_QUESTION = os.path.expandvars(config.get("Admin", "ChallengeQuestion"))
+CHALLENGE_RESPONSE = os.path.expandvars(config.get("Admin", "ChallengeResponse"))
+HMMS_HOST = os.path.expandvars(config.get("HMMS", "Host"))
+REQUEST_TIMEOUT = float(config.get("Network", "RequestTimeout", fallback="3.0"))
+POST_DELAY_SEC = float(config.get("Network", "PostDelaySec", fallback="0.1"))
+RETRY_TOTAL = int(config.get("Network", "RetryTotal", fallback="1"))
+RETRY_BACKOFF_SEC = float(config.get("Network", "RetryBackoffSec", fallback="0.2"))
+CONFIRM_BEFORE_APPLY = config.getboolean("General", "ConfirmBeforeApply", fallback=True)
 
 # Validate configuration values
 if SecurityType not in ["enterprise", "personal"]:
@@ -272,6 +297,7 @@ try:
                 ASSET_MAP[asset] = facility
 except FileNotFoundError:
     console.log("[yellow]Warning: assets.csv not found. Falling back to default WPA2 credentials.[/yellow]")
+    logging.exception("assets.csv not found.")
 
 
 
@@ -294,6 +320,46 @@ def resolve_credentials(device_name):
 def configure_device(ip):
     session = requests.Session()
     session.verify = False
+    retries = Retry(
+        total=RETRY_TOTAL,
+        connect=RETRY_TOTAL,
+        read=RETRY_TOTAL,
+        backoff_factor=RETRY_BACKOFF_SEC,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET", "POST"]
+    )
+    adapter = HTTPAdapter(max_retries=retries)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
+    def post_step(url, data, step_name):
+        try:
+            resp = session.post(url, data=data, timeout=REQUEST_TIMEOUT)
+            time.sleep(POST_DELAY_SEC)
+            return True, False
+        except Exception as e:
+            status = None
+            try:
+                status = resp.status_code  # type: ignore[name-defined]
+            except Exception:
+                status = None
+            fatal = isinstance(e, (ConnectTimeout, ConnectionError, ReadTimeout))
+            logging.exception(
+                "POST failed (%s) url=%s status=%s keys=%s",
+                step_name,
+                url,
+                status,
+                ",".join(sorted(data.keys()))
+            )
+            return False, fatal
+
+    def get_step(url, step_name):
+        try:
+            return session.get(url, timeout=REQUEST_TIMEOUT), False
+        except Exception as e:
+            fatal = isinstance(e, (ConnectTimeout, ConnectionError, ReadTimeout))
+            logging.exception("GET failed (%s) url=%s", step_name, url)
+            return None, fatal
     base_url = f"https://{ip}:8443"
 
     status = {
@@ -303,15 +369,18 @@ def configure_device(ip):
         "Login": "Failed",
         "ESSID": "Skipped",
         "WPA2 Identity": "Skipped",
-        "Finalize Config": "Skipped"
+        "Finalize Config": "Skipped",
+        "Admin": "Skipped",
+        "HMMS": "Skipped"
     }
 
     try:
         login_url = f"{base_url}/formLoginProc"
         login_data = {"webUser": USERNAME, "webPass": DEVICE_PASSWORD, "NextPage": "eth"}
-        resp = session.post(login_url, data=login_data)
+        resp = session.post(login_url, data=login_data, timeout=REQUEST_TIMEOUT)
         if "Status" not in resp.text:
             console.print(f"[red]=  Login failed for {ip}[/red]")
+            logging.error("Login failed for %s. Response length=%s", ip, len(resp.text or ""))
             error_alert_tune()
             return status
 
@@ -328,7 +397,14 @@ def configure_device(ip):
 
         identity, password = resolve_credentials(device_name)
 
-        session.post(f"{base_url}/formWlanProc", data={
+        admin_payload = {
+            "webPass": WEB_PASSWORD,
+            "confirmPass": WEB_PASSWORD,
+            "challengeQues": CHALLENGE_QUESTION,
+            "challengeRes": CHALLENGE_RESPONSE,
+            "NextPage": "finish"
+        }
+        wlan_payload = {
             "WlanEnabled": "on",
             "WlanDhcp": "on",
             "WlanIp": "192.168.0.100",
@@ -342,10 +418,8 @@ def configure_device(ip):
             "WlanFrequency": FrequencyBand,
             "WlanTransmitPower": TransmitPower,
             "NextPage": "privacy"
-        })
-        status["ESSID"] = SSID
-
-        session.post(f"{base_url}/formPrivacyProc", data={
+        }
+        privacy_payload = {
             "WlanSecurityType": SecurityType,
             "WpaEncryption": Encryption,
             "WpaSharedKey": "********",
@@ -358,10 +432,8 @@ def configure_device(ip):
             "WpaAnonIdentity": AnonIdentity,
             "ServerCertValidate": ValidateCert,
             "NextPage": "finish"
-        })
-        status["WPA2 Identity"] = identity
-
-        session.post(f"{base_url}/formEthProc", data={
+        }
+        eth_payload = {
             "EthMac": "00:03:B1:51:63:33",
             "EthDhcp": "on",
             "EthIp": "192.168.0.100",
@@ -371,12 +443,78 @@ def configure_device(ip):
             "EthDns2": "0.0.0.0",
             "EthDomain": "",
             "NextPage": "finish"
-        })
-        status["Finalize Config"] = "Success"
+        }
 
-    except Exception as e:
+        if CONFIRM_BEFORE_APPLY:
+            show_pending_changes("Admin Changes", admin_payload)
+            show_pending_changes("Wireless Changes", wlan_payload)
+            show_pending_changes("Security Changes", privacy_payload)
+            show_pending_changes("Ethernet Changes", eth_payload)
+            console.print(f"[bold yellow]= Confirm apply to device {device_name} at {ip}? (y/n)[/bold yellow]")
+            confirm = input(">> ").strip().lower()
+            if confirm != "y":
+                status["Finalize Config"] = "Skipped"
+                status["Admin"] = "Skipped"
+                status["HMMS"] = "Skipped"
+                return status
+
+        admin_ok, admin_fatal = post_step(f"{base_url}/formAdminProc", admin_payload, "admin")
+        status["Admin"] = "Success" if admin_ok else "Failed"
+        if admin_fatal:
+            status["ESSID"] = "Skipped"
+            status["WPA2 Identity"] = "Skipped"
+            status["Finalize Config"] = "Skipped"
+            status["HMMS"] = "Skipped"
+            return status
+
+        wlan_ok, wlan_fatal = post_step(f"{base_url}/formWlanProc", wlan_payload, "wlan")
+        if wlan_ok:
+            status["ESSID"] = SSID
+        if wlan_fatal:
+            status["WPA2 Identity"] = "Skipped"
+            status["Finalize Config"] = "Skipped"
+            status["HMMS"] = "Skipped"
+            return status
+
+        privacy_ok, privacy_fatal = post_step(f"{base_url}/formPrivacyProc", privacy_payload, "privacy")
+        if privacy_ok:
+            status["WPA2 Identity"] = identity
+        if privacy_fatal:
+            status["Finalize Config"] = "Skipped"
+            status["HMMS"] = "Skipped"
+            return status
+
+        eth_ok, eth_fatal = post_step(f"{base_url}/formEthProc", eth_payload, "eth")
+        status["Finalize Config"] = "Success" if eth_ok else "Failed"
+        if eth_fatal:
+            status["HMMS"] = "Skipped"
+            return status
+
+        dev_type = None
+        mmu_page, mmu_get_fatal = get_step(f"{base_url}/hsp-phx-ce-mmu.html", "mmu_get")
+        if mmu_get_fatal:
+            status["HMMS"] = "Skipped"
+            return status
+        if mmu_page and mmu_page.text:
+            match = re.search(r'var\s+DevType\s*=\s*\"([^\"]+)\"', mmu_page.text)
+            if match:
+                dev_type = match.group(1).strip()
+
+        mmu_payload = {
+            "MmuUrl": HMMS_HOST,
+            "DevId": device_name,
+            "NextPage": "finish"
+        }
+        if dev_type:
+            mmu_payload["DevType"] = dev_type
+        if CONFIRM_BEFORE_APPLY:
+            show_pending_changes("HMMS Changes", mmu_payload)
+        mmu_ok, _mmu_fatal = post_step(f"{base_url}/formMmuProc", mmu_payload, "mmu")
+        status["HMMS"] = "Success" if mmu_ok else "Failed"
+
+    except Exception:
         console.print(f"[red] Error configuring {ip}[/red]")
-        # console.print(f"[red] Error configuring {ip}: {e}[/red]")
+        logging.exception("Error configuring device %s.", ip)
 
     return status
 
@@ -418,7 +556,7 @@ def display_colored_banner():
                | |_) | |  | | | | |\/| |  _ \| | | || |  
                |  __/| |__| |_| | |  | | |_) | |_| || |  
                |_|   |_____\___/|_|  |_|____/ \___/ |_| 
-                      THE CONFIGUNATOR OF PLUMS!
+                    THE CONFIG-ER-NATOR OF PLUMS!
     =============================================================
     """
     console.print(banner, style="purple")
@@ -472,6 +610,14 @@ def get_user_selected_interface(interfaces, active_subnet=None):
         except ValueError:
             console.print("[red]Please enter a number.[/red]")
 
+def show_pending_changes(title, data):
+    table = Table(title=title, title_style="bold magenta", border_style="cyan")
+    table.add_column("Field", style="green")
+    table.add_column("Value", style="cyan", overflow="fold")
+    for k, v in data.items():
+        table.add_row(str(k), str(v))
+    console.print(table)
+
 if __name__ == "__main__":
     console.clear()
     victory_fanfare()
@@ -483,6 +629,7 @@ if __name__ == "__main__":
         exit(1)
 
     selected_subnet = None
+    manual_ips = None
 
     while True:
         all_detected_interfaces = []
@@ -506,15 +653,27 @@ if __name__ == "__main__":
                     except Exception:
                         continue
 
-        # Prompt the user for an interface if none selected yet
-        if not selected_subnet:
-            selected_subnet = get_user_selected_interface(all_detected_interfaces, active_subnet=selected_subnet)
-            if not selected_subnet:
-                console.print("[red]No interface selected. Exiting.[/red]")
-                exit(1)
+        # Ask whether to target specific IPs or scan an interface
+        if manual_ips is None and not selected_subnet:
+            console.print("[bold yellow]= Do you want to target specific IPs instead of scanning an interface? (y/n)[/bold yellow]")
+            choice = input(">> ").strip().lower()
+            if choice == "y":
+                manual_ips = get_ip_list_from_user()
+                if not manual_ips:
+                    console.print("[red]No valid IPs provided. Exiting.[/red]")
+                    exit(1)
+            else:
+                selected_subnet = get_user_selected_interface(all_detected_interfaces, active_subnet=selected_subnet)
+                if not selected_subnet:
+                    console.print("[red]No interface selected. Exiting.[/red]")
+                    exit(1)
 
-        console.print(f"[green]=  Scanning subnet:[/green] {selected_subnet}")
-        devices = scan_subnet(selected_subnet)
+        if manual_ips is not None:
+            devices = manual_ips
+            console.print(f"[green]=  Using manual IP targets:[/green] {', '.join(devices)}")
+        else:
+            console.print(f"[green]=  Scanning subnet:[/green] {selected_subnet}")
+            devices = scan_subnet(selected_subnet)
 
         results = [configure_device(ip) for ip in devices]
         robot_alert()
@@ -525,6 +684,7 @@ if __name__ == "__main__":
             try_again = input(">> ").strip().lower()
             if try_again == "y":
                 selected_subnet = None
+                manual_ips = None
                 continue
             else:
                 break
@@ -538,6 +698,7 @@ if __name__ == "__main__":
         answer = input(">> ").strip().lower()
         if answer == "c":
             selected_subnet = None
+            manual_ips = None
             continue
         elif answer == "y":
             for iface, subnet in all_detected_interfaces:
@@ -552,4 +713,4 @@ if __name__ == "__main__":
     beep_triumph()
     time.sleep(0.25)
     game_over_tune()
-    console.print("[bold green]<  Thank you for using the Plum Configurator! Goodbye![/bold green]")
+    console.print("[bold green]<  Thank you for using the Plum Config-u-rator! Goodbye![/bold green]")
