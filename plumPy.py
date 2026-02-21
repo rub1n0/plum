@@ -12,7 +12,6 @@ from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, BarColumn, TimeElapsedColumn
 from ipaddress import ip_network
 import urllib3
-import numpy as np
 import psutil
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -23,18 +22,9 @@ from cryptography.fernet import Fernet
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
 
-from contextlib import redirect_stdout
-
-# Suppress pygame greeting
-with open(os.devnull, 'w') as devnull:
-    with redirect_stdout(devnull):
-        import pygame
-
 # Disable SSL warnings for self-signed certificates
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Initialize pygame mixer for sound playback
-pygame.mixer.init(frequency=44100, size=-16, channels=1)
 console = Console()
 
 WPA_SECRET_FILE = 'wpa_secrets.enc'
@@ -70,38 +60,22 @@ def load_wpa_secrets(passphrase):
 
 results = []
 
-# Sound tone generation functions
-def generate_tone(frequency, duration_ms, volume=0.5):
-    sample_rate = 22050
-    duration = duration_ms / 1000.0
-    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
-    wave = (np.sin(2 * np.pi * frequency * t) * 32767 * volume).astype(np.int16)
-    stereo_wave = np.column_stack((wave, wave))
-    return pygame.sndarray.make_sound(stereo_wave)
+# Sound tone generation functions (pygame-free)
+try:
+    import winsound
+except ImportError:
+    winsound = None
 
-def generate_sweep(start_freq, end_freq, duration_ms, volume=0.5):
-    sample_rate = 44100
-    duration = duration_ms / 1000.0
-    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
-    freqs = np.linspace(start_freq, end_freq, t.size)
-    wave = (np.sin(2 * np.pi * freqs * t) * 32767 * volume).astype(np.int16)
-    stereo_wave = np.column_stack((wave, wave))
-    return pygame.sndarray.make_sound(stereo_wave)
-
-def generate_modulated_tone(base_freq, mod_freq, duration_ms, volume=0.5):
-    sample_rate = 44100
-    duration = duration_ms / 1000.0
-    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
-    modulator = np.sin(2 * np.pi * mod_freq * t)
-    carrier = np.sin(2 * np.pi * base_freq * t + modulator)
-    wave = (carrier * 32767 * volume).astype(np.int16)
-    stereo_wave = np.column_stack((wave, wave))
-    return pygame.sndarray.make_sound(stereo_wave)
+def _beep(frequency, duration_ms):
+    if winsound is None:
+        return
+    freq = max(37, min(int(frequency), 32767))
+    dur = max(1, int(duration_ms))
+    winsound.Beep(freq, dur)
 
 def play_sequence(freqs, duration=50):
     for f in freqs:
-        sound = generate_tone(f, duration)
-        sound.play()
+        _beep(f, duration)
         time.sleep(duration / 1000.0)
 
 def beep_success():
@@ -120,19 +94,21 @@ def beep_triumph():
     play_sequence([480, 660, 780, 1050])
 
 def robot_acknowledge():
-    generate_modulated_tone(175, 10, 300).play()
+    for f in (175, 185, 170, 180):
+        _beep(f, 75)
     time.sleep(0.5)
 
 def robot_alert():
-    generate_modulated_tone(200, 75, 400).play()
+    for f in (200, 260, 220, 280):
+        _beep(f, 90)
     time.sleep(0.5)
 
 def robot_aha():
-    tone1 = generate_sweep(400, 800, 150)  # Rising tone
-    tone2 = generate_modulated_tone(750, 40, 120)  # Wobble/glitchy overlay
-    tone1.play()
-    time.sleep(0.15)
-    tone2.play()
+    for f in range(400, 801, 80):
+        _beep(f, 20)
+    time.sleep(0.1)
+    for f in (700, 760, 720, 780):
+        _beep(f, 20)
 
 def game_over_tune():
     play_sequence([784, 880, 988], duration=180)     # G5, A5, B5
@@ -415,13 +391,15 @@ def show_summary(results):
 
 def display_colored_banner():
     banner = r"""
-    ██████╗ ██╗     ██╗   ██╗███╗   ███╗    ███████╗  ██████╗ ████████╗
-    ██╔══██╗██║     ██║   ██║████╗ ████║    ██╔═══██╗██╔═══██╗╚══██╔══╝
-    ██████╔╝██║     ██║   ██║██╔████╔██║    ███████╔╝██║   ██║   ██║   
-    ██╔═══╝ ██║     ██║   ██║██║╚██╔╝██║    ██╔═══██╗██║   ██║   ██║   
-    ██║     ███████╗╚██████╔╝██║ ╚═╝ ██║    ███████╔╝╚██████╔╝   ██║   
-    ╚═╝     ╚══════╝ ╚═════╝ ╚═╝     ╚═╝    ╚══════╝  ╚═════╝    ╚═╝   
-                      THE CONFIGUNATOR OF PLUMS!
+    =============================================================
+      ____  _                   _____            __ _           _
+     |  _ \| |                 / ____|          / _(_)         | |
+     | |_) | |_   _ _ __ ___  | |     ___  _ __| |_ _  __ _ ___| |
+     |  __/| | | | | '_ ` _ \ | |    / _ \| '__|  _| |/ _` / __| |
+     | |   | | |_| | | | | | || |___| (_) | |  | | | | (_| \__ \_|
+     |_|   |_|\__,_|_| |_| |_| \_____\___/|_|  |_| |_|\__,_|___(_)
+                           THE CONFIGUNATOR OF PLUMS!
+    =============================================================
     """
     console.print(banner, style="purple")
 

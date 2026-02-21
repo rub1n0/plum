@@ -7,7 +7,7 @@
 - 🔎 Detects devices via subnet scanning or manual IP list
 - 🔐 Configures SSID, WPA2 identity, and EAP settings per facility
 - 🧠 Supports encrypted vaults for facility-specific passwords using `Fernet`
-- 🎨 Rich CLI interface with styled output and audio feedback using `pygame` + `rich`
+- 🎨 Rich CLI interface with styled output and audio feedback (Windows beeps) using `rich`
 - 📄 Outputs detailed configuration logs to CSV
 - ♻️ Loop logic with optional rerun prompts
 - 🔑 .env file supports fallback credentials
