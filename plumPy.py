@@ -273,7 +273,12 @@ def is_valid_asset_number(value):
     return bool(re.fullmatch(r"\d{6}", str(value).strip()))
 
 def get_user_input(prompt, allow_exit=True):
-    user_input = input(prompt).strip()
+    try:
+        user_input = input(prompt).strip()
+    except EOFError:
+        console.print("[bold yellow]=  No input available. Exiting.[/bold yellow]")
+        logging.error("User input unavailable (EOF). Exiting.")
+        raise SystemExit(0)
     if allow_exit and user_input.lower() in {"q", "quit", "exit"}:
         console.print("[bold yellow]=  Exiting at user request.[/bold yellow]")
         logging.error("User requested exit via input.")
@@ -726,24 +731,25 @@ if __name__ == "__main__":
             EXCLUDED_IF_NAMES = {"lo", "docker0"}
             EXCLUDED_PREFIXES = ("br-", "vbox", "vmnet", "zt", "wg", "TAP", "tun", "npcap", "npf", "Loopback")
 
-        for interface, snics in psutil.net_if_addrs().items():
-            if interface in EXCLUDED_IF_NAMES or interface.startswith(EXCLUDED_PREFIXES):
-                continue
-            for snic in snics:
-                if snic.family == socket.AF_INET and not snic.address.startswith("127."):
-                    ip = snic.address
-                    netmask = snic.netmask
-                    try:
-                        network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
-                        if network.prefixlen < 32:
-                            subnet_str = str(network)
-                            subnets.append(subnet_str)
-                            all_detected_interfaces.append((interface, subnet_str))
-                    except Exception:
-                        continue
+            for interface, snics in psutil.net_if_addrs().items():
+                if interface in EXCLUDED_IF_NAMES or interface.startswith(EXCLUDED_PREFIXES):
+                    continue
+                for snic in snics:
+                    if snic.family == socket.AF_INET and not snic.address.startswith("127."):
+                        ip = snic.address
+                        netmask = snic.netmask
+                        try:
+                            network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
+                            if network.prefixlen < 32:
+                                subnet_str = str(network)
+                                subnets.append(subnet_str)
+                                all_detected_interfaces.append((interface, subnet_str))
+                        except Exception:
+                            continue
 
-        # Ask whether to target specific IPs or scan an interface
+            # Ask whether to target specific IPs or scan an interface
             if manual_ips is None and not selected_subnet:
+                console.print("[bold yellow]=  Waiting for input...[/bold yellow]")
                 console.print("[bold yellow]= Do you want to target specific IPs instead of scanning an interface? (y/n)[/bold yellow]")
                 choice = get_user_input(">> ").lower()
                 if choice == "y":
