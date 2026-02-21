@@ -22,3 +22,8 @@ wpa_secrets.enc
 
 # Runtime output
 device_log_*.csv
+
+# Status Dumps
+status_dumps/
+status_missing_manifest*
+

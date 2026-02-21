@@ -438,6 +438,24 @@ def configure_device(ip):
     session.mount("https://", adapter)
     session.mount("http://", adapter)
 
+    def do_login(username, password, step_name):
+        login_url = f"{base_url}/formLoginProc"
+        login_data = {"webUser": username, "webPass": password, "NextPage": "eth"}
+        try:
+            resp = session.post(login_url, data=login_data, timeout=REQUEST_TIMEOUT)
+            if resp is not None and resp.status_code >= 400:
+                logging.error(
+                    "Login non-OK (%s) url=%s status=%s response_len=%s",
+                    step_name,
+                    login_url,
+                    resp.status_code,
+                    len(resp.text or "")
+                )
+            return resp
+        except Exception:
+            logging.exception("Login failed (%s) url=%s", step_name, login_url)
+            return None
+
     def post_step(url, data, step_name):
         try:
             resp = session.post(url, data=data, timeout=REQUEST_TIMEOUT)
@@ -498,48 +516,16 @@ def configure_device(ip):
     }
 
     try:
-        login_url = f"{base_url}/formLoginProc"
-        login_data = {"webUser": USERNAME, "webPass": DEVICE_PASSWORD, "NextPage": "eth"}
-        resp = session.post(login_url, data=login_data, timeout=REQUEST_TIMEOUT)
-        if "Status" not in resp.text:
+        # Initial login (factory/default credentials)
+        resp = do_login(USERNAME, DEVICE_PASSWORD, "initial")
+        if not resp or "Status" not in (resp.text or ""):
             console.print(f"[red]=  Login failed for {ip}[/red]")
             logging.error("Login failed for %s. Response length=%s", ip, len(resp.text or ""))
             error_alert_tune()
             return status
 
-        console.print(f"[green]Login successful for {ip}[/green]")
-        status["Login"] = "Success"
-        device_name = re.search(r'var\s+deviceName\s*=\s*"([^"]+)"', resp.text)
-        if device_name:
-            device_name = device_name.group(1).strip()
-        else:
-            device_name = "Unknown"
-            if not is_valid_asset_number(device_name):
-                status_page = None
-                _status_fatal = False
-                try:
-                    status_page = fetch_status_page(session, base_url)
-                except Exception:
-                    _status_fatal = True
-                    logging.exception("Status GET failed (status_get) url=%s", f"{base_url}/hsp-phx-ce-status.html")
-                manifest_text = None
-                if status_page and status_page.text:
-                    serial = get_serial_from_status(status_page.text)
-                    manifest_text = get_manifest_from_status(status_page.text)
-                    if not manifest_text:
-                        write_status_dump(status_page.text, ip, label="status_missing_manifest")
-                    if serial:
-                        mapped_asset = ASSET_BY_SERIAL.get(serial)
-                        if mapped_asset and is_valid_asset_number(mapped_asset):
-                            console.print(f"[green]=  Resolved asset {mapped_asset} from serial {serial}[/green]")
-                            device_name = mapped_asset
-            if not is_valid_asset_number(device_name):
-                device_name = prompt_for_asset_number(manifest_text)
-        status["BEIC"] = device_name
-
-        identity, password = resolve_credentials(device_name)
-
         admin_payload = {
+            "webUser": USERNAME,
             "webPass": WEB_PASSWORD,
             "confirmPass": WEB_PASSWORD,
             "challengeQues": CHALLENGE_QUESTION,
@@ -600,6 +586,7 @@ def configure_device(ip):
                 status["HMMS"] = "Skipped"
                 return status
 
+        # Configure Administration first
         admin_ok, admin_fatal = post_step(f"{base_url}/formAdminProc", admin_payload, "admin")
         status["Admin"] = "Success" if admin_ok else "Failed"
         if admin_fatal:
@@ -608,6 +595,46 @@ def configure_device(ip):
             status["Finalize Config"] = "Skipped"
             status["HMMS"] = "Skipped"
             return status
+
+        # Re-login using new admin password
+        relogin_resp = do_login(USERNAME, WEB_PASSWORD, "post_admin")
+        if not relogin_resp or "Status" not in (relogin_resp.text or ""):
+            console.print(f"[red]=  Re-login failed for {ip}[/red]")
+            logging.error("Re-login failed for %s. Response length=%s", ip, len(relogin_resp.text or ""))
+            return status
+
+        console.print(f"[green]Login successful for {ip}[/green]")
+        status["Login"] = "Success"
+
+        device_name = re.search(r'var\s+deviceName\s*=\s*"([^"]+)"', relogin_resp.text or "")
+        if device_name:
+            device_name = device_name.group(1).strip()
+        else:
+            device_name = "Unknown"
+            if not is_valid_asset_number(device_name):
+                status_page = None
+                _status_fatal = False
+                try:
+                    status_page = fetch_status_page(session, base_url)
+                except Exception:
+                    _status_fatal = True
+                    logging.exception("Status GET failed (status_get) url=%s", f"{base_url}/hsp-phx-ce-status.html")
+                manifest_text = None
+                if status_page and status_page.text:
+                    serial = get_serial_from_status(status_page.text)
+                    manifest_text = get_manifest_from_status(status_page.text)
+                    if not manifest_text:
+                        write_status_dump(status_page.text, ip, label="status_missing_manifest")
+                    if serial:
+                        mapped_asset = ASSET_BY_SERIAL.get(serial)
+                        if mapped_asset and is_valid_asset_number(mapped_asset):
+                            console.print(f"[green]=  Resolved asset {mapped_asset} from serial {serial}[/green]")
+                            device_name = mapped_asset
+            if not is_valid_asset_number(device_name):
+                device_name = prompt_for_asset_number(manifest_text)
+        status["BEIC"] = device_name
+
+        identity, password = resolve_credentials(device_name)
 
         wlan_ok, wlan_fatal = post_step(f"{base_url}/formWlanProc", wlan_payload, "wlan")
         if wlan_ok:
@@ -702,6 +729,12 @@ def display_colored_banner():
     =============================================================
     """
     console.print(banner, style="purple")
+    subtitle = (
+        '    The Jennifer "Packet Maven" Lemelle and Brandon "Kernel" Chorny\n'
+        "        Memorial Plumbot Infusion Device Programmer Version\n" \
+        "                    Commit. Compile. Conquer.\n"
+    )
+    console.print(subtitle, style="purple")
     task_success_tune()
 
 def get_ip_list_from_user():
