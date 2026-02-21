@@ -305,6 +305,55 @@ def fetch_status_page(session, base_url):
     # Final explicit fetch with no-cache hint.
     return session.get(target_url, timeout=REQUEST_TIMEOUT, headers={"Cache-Control": "no-cache"})
 
+def fetch_admin_page(session, base_url):
+    candidates = [
+        f"{base_url}/hsp-phx-ce-admin.html",
+        f"{base_url}/hsp-phx-ce-admin.html?admin=1",
+    ]
+    for url in candidates:
+        try:
+            resp = session.get(url, timeout=REQUEST_TIMEOUT)
+            if resp is not None and resp.status_code < 400 and "Administration" in (resp.text or ""):
+                logging.error("Admin GET url=%s status=%s response_len=%s", url, resp.status_code, len(resp.text or ""))
+                return resp, url
+        except Exception:
+            logging.exception("Admin GET failed url=%s", url)
+    # Fallback: some devices return admin content from status URL.
+    fallback_url = f"{base_url}/hsp-phx-ce-status.html"
+    try:
+        resp = session.get(fallback_url, timeout=REQUEST_TIMEOUT)
+        if resp is not None and resp.status_code < 400 and "Administration" in (resp.text or ""):
+            logging.error("Admin GET fallback url=%s status=%s response_len=%s", fallback_url, resp.status_code, len(resp.text or ""))
+            return resp, fallback_url
+    except Exception:
+        logging.exception("Admin GET fallback failed url=%s", fallback_url)
+    return None, None
+
+def parse_admin_vars(html_text):
+    if not html_text:
+        return {}
+    def _grab(name):
+        m = re.search(rf'var\s+{name}\s*=\s*"([^"]*)"', html_text)
+        return m.group(1) if m else None
+    return {
+        "webUser": _grab("webUser"),
+        "challengeQues": _grab("challengeQues"),
+        "challengeRes": _grab("challengeRes"),
+        "sessionType": _grab("sessionType"),
+    }
+
+def verify_admin_settings(html_text, expected_user, expected_question):
+    vars_found = parse_admin_vars(html_text)
+    missing = [k for k, v in vars_found.items() if v is None]
+    mismatches = []
+    if vars_found.get("webUser") is not None and vars_found.get("webUser") != expected_user:
+        mismatches.append(f'webUser="{vars_found.get("webUser")}"')
+    if vars_found.get("challengeQues") is not None and vars_found.get("challengeQues") != expected_question:
+        mismatches.append(f'challengeQues="{vars_found.get("challengeQues")}"')
+    # challengeRes is typically masked/not reliable; report only presence.
+    ok = not mismatches and ("webUser" not in missing) and ("challengeQues" not in missing)
+    return ok, vars_found, mismatches, missing
+
 def format_manifest_for_display(manifest_text):
     if not manifest_text:
         return None
@@ -532,6 +581,104 @@ def configure_device(ip):
             "challengeRes": CHALLENGE_RESPONSE,
             "NextPage": "finish"
         }
+
+        if CONFIRM_BEFORE_APPLY:
+            show_pending_changes("Admin Changes", admin_payload)
+            console.print(f"[bold yellow]= Confirm apply to device (admin only) at {ip}? (y/n)[/bold yellow]")
+            confirm = get_user_input(">> ").strip().lower()
+            if confirm != "y":
+                status["Finalize Config"] = "Skipped"
+                status["Admin"] = "Skipped"
+                status["HMMS"] = "Skipped"
+                return status
+
+        # Configure Administration first
+        admin_ok, admin_fatal = post_step(f"{base_url}/formAdminProc", admin_payload, "admin")
+        status["Admin"] = "Success" if admin_ok else "Failed"
+        if admin_fatal:
+            status["ESSID"] = "Skipped"
+            status["WPA2 Identity"] = "Skipped"
+            status["Finalize Config"] = "Skipped"
+            status["HMMS"] = "Skipped"
+            return status
+
+        admin_verified = False
+        admin_vars = {}
+        if admin_ok:
+            admin_page, admin_url = fetch_admin_page(session, base_url)
+            if admin_page and admin_page.text:
+                admin_verified, admin_vars, mismatches, missing = verify_admin_settings(
+                    admin_page.text,
+                    USERNAME,
+                    CHALLENGE_QUESTION
+                )
+                if admin_verified:
+                    logging.error("Admin verify success url=%s vars=%s", admin_url, admin_vars)
+                else:
+                    logging.error(
+                        "Admin verify failed url=%s vars=%s mismatches=%s missing=%s",
+                        admin_url,
+                        admin_vars,
+                        mismatches,
+                        missing
+                    )
+            else:
+                logging.error("Admin verify failed: unable to fetch admin page for %s", ip)
+
+        if not admin_ok or not admin_verified:
+            status["Admin"] = "Failed"
+            status["ESSID"] = "Skipped"
+            status["WPA2 Identity"] = "Skipped"
+            status["Finalize Config"] = "Skipped"
+            status["HMMS"] = "Skipped"
+            return status
+
+        # Re-login using new admin password
+        relogin_resp = do_login(USERNAME, WEB_PASSWORD, "post_admin")
+        if not relogin_resp or "Status" not in (relogin_resp.text or ""):
+            console.print(f"[red]=  Re-login failed for {ip}[/red]")
+            logging.error("Re-login failed for %s. Response length=%s", ip, len(relogin_resp.text or ""))
+            # Fallback to original device password
+            fallback_resp = do_login(USERNAME, DEVICE_PASSWORD, "post_admin_fallback")
+            if fallback_resp and "Status" in (fallback_resp.text or ""):
+                logging.error("Re-login fallback succeeded for %s using DEVICE_PASSWORD", ip)
+                relogin_resp = fallback_resp
+            else:
+                return status
+
+        console.print(f"[green]Login successful for {ip}[/green]")
+        status["Login"] = "Success"
+
+        device_name = re.search(r'var\s+deviceName\s*=\s*"([^"]+)"', relogin_resp.text or "")
+        if device_name:
+            device_name = device_name.group(1).strip()
+        else:
+            device_name = "Unknown"
+            if not is_valid_asset_number(device_name):
+                status_page = None
+                _status_fatal = False
+                try:
+                    status_page = fetch_status_page(session, base_url)
+                except Exception:
+                    _status_fatal = True
+                    logging.exception("Status GET failed (status_get) url=%s", f"{base_url}/hsp-phx-ce-status.html")
+                manifest_text = None
+                if status_page and status_page.text:
+                    serial = get_serial_from_status(status_page.text)
+                    manifest_text = get_manifest_from_status(status_page.text)
+                    if not manifest_text:
+                        write_status_dump(status_page.text, ip, label="status_missing_manifest")
+                    if serial:
+                        mapped_asset = ASSET_BY_SERIAL.get(serial)
+                        if mapped_asset and is_valid_asset_number(mapped_asset):
+                            console.print(f"[green]=  Resolved asset {mapped_asset} from serial {serial}[/green]")
+                            device_name = mapped_asset
+            if not is_valid_asset_number(device_name):
+                device_name = prompt_for_asset_number(manifest_text)
+        status["BEIC"] = device_name
+
+        identity, password = resolve_credentials(device_name)
+
         wlan_payload = {
             "WlanEnabled": "on",
             "WlanDhcp": "on",
@@ -574,67 +721,15 @@ def configure_device(ip):
         }
 
         if CONFIRM_BEFORE_APPLY:
-            show_pending_changes("Admin Changes", admin_payload)
             show_pending_changes("Wireless Changes", wlan_payload)
             show_pending_changes("Security Changes", privacy_payload)
             show_pending_changes("Ethernet Changes", eth_payload)
-            console.print(f"[bold yellow]= Confirm apply to device {device_name} at {ip}? (y/n)[/bold yellow]")
-            confirm = input(">> ").strip().lower()
+            console.print(f"[bold yellow]= Confirm apply network settings to device {device_name} at {ip}? (y/n)[/bold yellow]")
+            confirm = get_user_input(">> ").strip().lower()
             if confirm != "y":
                 status["Finalize Config"] = "Skipped"
-                status["Admin"] = "Skipped"
                 status["HMMS"] = "Skipped"
                 return status
-
-        # Configure Administration first
-        admin_ok, admin_fatal = post_step(f"{base_url}/formAdminProc", admin_payload, "admin")
-        status["Admin"] = "Success" if admin_ok else "Failed"
-        if admin_fatal:
-            status["ESSID"] = "Skipped"
-            status["WPA2 Identity"] = "Skipped"
-            status["Finalize Config"] = "Skipped"
-            status["HMMS"] = "Skipped"
-            return status
-
-        # Re-login using new admin password
-        relogin_resp = do_login(USERNAME, WEB_PASSWORD, "post_admin")
-        if not relogin_resp or "Status" not in (relogin_resp.text or ""):
-            console.print(f"[red]=  Re-login failed for {ip}[/red]")
-            logging.error("Re-login failed for %s. Response length=%s", ip, len(relogin_resp.text or ""))
-            return status
-
-        console.print(f"[green]Login successful for {ip}[/green]")
-        status["Login"] = "Success"
-
-        device_name = re.search(r'var\s+deviceName\s*=\s*"([^"]+)"', relogin_resp.text or "")
-        if device_name:
-            device_name = device_name.group(1).strip()
-        else:
-            device_name = "Unknown"
-            if not is_valid_asset_number(device_name):
-                status_page = None
-                _status_fatal = False
-                try:
-                    status_page = fetch_status_page(session, base_url)
-                except Exception:
-                    _status_fatal = True
-                    logging.exception("Status GET failed (status_get) url=%s", f"{base_url}/hsp-phx-ce-status.html")
-                manifest_text = None
-                if status_page and status_page.text:
-                    serial = get_serial_from_status(status_page.text)
-                    manifest_text = get_manifest_from_status(status_page.text)
-                    if not manifest_text:
-                        write_status_dump(status_page.text, ip, label="status_missing_manifest")
-                    if serial:
-                        mapped_asset = ASSET_BY_SERIAL.get(serial)
-                        if mapped_asset and is_valid_asset_number(mapped_asset):
-                            console.print(f"[green]=  Resolved asset {mapped_asset} from serial {serial}[/green]")
-                            device_name = mapped_asset
-            if not is_valid_asset_number(device_name):
-                device_name = prompt_for_asset_number(manifest_text)
-        status["BEIC"] = device_name
-
-        identity, password = resolve_credentials(device_name)
 
         wlan_ok, wlan_fatal = post_step(f"{base_url}/formWlanProc", wlan_payload, "wlan")
         if wlan_ok:
@@ -729,12 +824,17 @@ def display_colored_banner():
     =============================================================
     """
     console.print(banner, style="purple")
-    subtitle = (
-        '    The Jennifer "Packet Maven" Lemelle and Brandon "Kernel" Chorny\n'
-        "          Memorial Plumbot Infusion Device Programmer Version\n" \
-        "                      Commit. Compile. Conquer.\n"
+    console.print(
+        '    [bold magenta]The Jennifer "Packet Maven" Lemelle and Brandon "Kernel" Chorny[/bold magenta]'
     )
-    console.print(subtitle, style="purple")
+    console.print(
+        "          [bold cyan]Memorial Plumbot Infusion Device Programmer Version[/bold cyan]"
+    )
+    console.print(
+        "                      [bold yellow]Commit.[/bold yellow] "
+        "[bold green]Compile.[/bold green] "
+        "[bold magenta]Conquer.[/bold magenta]"
+    )
     task_success_tune()
 
 def get_ip_list_from_user():
@@ -763,7 +863,7 @@ def get_user_selected_interface(interfaces, active_subnet=None):
         console.print("[red]L No valid interfaces found to select from.[/red]")
         return None
 
-    table = Table(title="=  Available Interfaces", title_style="bold magenta", border_style="cyan")
+    table = Table(title=" Available Interfaces", title_style="bold magenta", border_style="cyan")
     table.add_column("Index", style="yellow")
     table.add_column("Interface", style="green")
     table.add_column("Detected Subnet", style="cyan")
