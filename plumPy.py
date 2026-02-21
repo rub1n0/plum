@@ -26,17 +26,23 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 console = Console()
 
-WPA_SECRET_FILE = 'wpa_secrets.enc'
-WPA_KEY_FILE = 'secret.key'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+WPA_SECRET_FILE = os.path.join(BASE_DIR, "wpa_secrets.enc")
+SALT_FILE = os.path.join(BASE_DIR, "salt.bin")
+CONFIG_FILE = os.path.join(BASE_DIR, "config.ini")
+ASSETS_FILE = os.path.join(BASE_DIR, "assets.csv")
 
 def load_wpa_secrets(passphrase):
     try:
+        if not passphrase:
+            console.log("[red]L WPA_SECRET_PASSPHRASE is empty or missing.[/red]")
+            return {}
         from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
         from cryptography.hazmat.backends import default_backend
         from cryptography.hazmat.primitives import hashes
         import base64
 
-        with open('salt.bin', 'rb') as sf:
+        with open(SALT_FILE, "rb") as sf:
             salt = sf.read()
 
         kdf = PBKDF2HMAC(
@@ -49,7 +55,7 @@ def load_wpa_secrets(passphrase):
         key = base64.urlsafe_b64encode(kdf.derive(passphrase.encode()))
         fernet = Fernet(key)
 
-        with open('wpa_secrets.enc', 'rb') as ef:
+        with open(WPA_SECRET_FILE, "rb") as ef:
             decrypted = fernet.decrypt(ef.read())
 
         return json.loads(decrypted.decode())
@@ -208,7 +214,7 @@ def get_device_name(html_text):
     return match.group(1).strip() if match else "Unknown"
 
 # Load environment variables
-load_dotenv()
+load_dotenv(dotenv_path=os.path.join(BASE_DIR, ".env"))
 USERNAME = os.getenv("DEVICE_USERNAME")
 DEVICE_PASSWORD = os.getenv("DEVICE_PASSWORD")
 WPA_IDENTITY = os.getenv("WPA2_IDENTITY")
@@ -218,7 +224,7 @@ user_subnet = os.getenv("DEFAULT_SUBNET", "")
 
 # Load INI configuration
 config = configparser.ConfigParser()
-config.read("config.ini")
+config.read(CONFIG_FILE)
 SSID = os.path.expandvars(config.get("Wireless", "SSID"))
 FrequencyBand = os.path.expandvars(config.get("Wireless", "FrequencyBand"))
 TransmitPower = os.path.expandvars(config.get("Wireless", "TransmitPower"))
@@ -247,7 +253,7 @@ FACILITY_MAP = {
 
 ASSET_MAP = {}
 try:
-    with open("assets.csv", newline="") as f:
+    with open(ASSETS_FILE, newline="") as f:
         reader = csv.reader(f)
         for row in reader:
             if len(row) >= 2:
@@ -264,7 +270,7 @@ def resolve_credentials(device_name):
         identity = FACILITY_MAP[facility]
         password = WPA_SECRETS.get(identity)
         if not password:
-            console.log(f"[yellow]  No encrypted password for {identity}. Falling back to WPA2_PASSWORD.[/yellow]")
+            console.log(f"[yellow] No encrypted password for {identity}. Falling back to WPA2_PASSWORD.[/yellow]")
             password = WPA_PASSWORD
         return identity, password
     return WPA_IDENTITY, WPA_PASSWORD
@@ -356,8 +362,8 @@ def configure_device(ip):
         status["Finalize Config"] = "Success"
 
     except Exception as e:
-        console.print(f"[red]  Error configuring {ip}[/red]")
-        # console.print(f"[red]  Error configuring {ip}: {e}[/red]")
+        console.print(f"[red] Error configuring {ip}[/red]")
+        # console.print(f"[red] Error configuring {ip}: {e}[/red]")
 
     return status
 
@@ -369,7 +375,7 @@ if FrequencyBand not in ["11a", "11b/g"]:
 
 def save_log(results):
     if not results:
-        console.log("[yellow]  No results to save.[/yellow]")
+        console.log("[yellow] No results to save.[/yellow]")
         return False
     today = datetime.date.today().strftime('%Y-%m-%d')
     filename = f"device_log_{today}.csv"
@@ -394,13 +400,12 @@ def show_summary(results):
 def display_colored_banner():
     banner = r"""
     =============================================================
-      ____  _                   _____            __ _           _
-     |  _ \| |                 / ____|          / _(_)         | |
-     | |_) | |_   _ _ __ ___  | |     ___  _ __| |_ _  __ _ ___| |
-     |  __/| | | | | '_ ` _ \ | |    / _ \| '__|  _| |/ _` / __| |
-     | |   | | |_| | | | | | || |___| (_) | |  | | | | (_| \__ \_|
-     |_|   |_|\__,_|_| |_| |_| \_____\___/|_|  |_| |_|\__,_|___(_)
-                           THE CONFIGUNATOR OF PLUMS!
+                ____  _    _   _ __  __ ____   ___ _____ 
+               |  _ \| |  | | | |  \/  | __ ) / _ \_   _|
+               | |_) | |  | | | | |\/| |  _ \| | | || |  
+               |  __/| |__| |_| | |  | | |_) | |_| || |  
+               |_|   |_____\___/|_|  |_|____/ \___/ |_| 
+                      THE CONFIGUNATOR OF PLUMS!
     =============================================================
     """
     console.print(banner, style="purple")
@@ -502,7 +507,7 @@ if __name__ == "__main__":
         robot_alert()
 
         if not results:
-            console.print("[blue]9 No devices were found or responded in this subnet.[/blue]")
+            console.print("[blue] No devices were found or responded in this subnet.[/blue]")
             console.print("[bold yellow]= Do you want to choose a different interface? (y/n)[/bold yellow]")
             try_again = input(">> ").strip().lower()
             if try_again == "y":
