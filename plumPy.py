@@ -230,13 +230,34 @@ def get_device_name(html_text):
     return match.group(1).strip() if match else "Unknown"
 
 def get_serial_from_status(html_text):
+    manifest_match = re.search(r'var\s+plumAPlusDeviceManifest\s*=\s*"([^"]*)"', html_text, re.DOTALL)
+    if manifest_match:
+        manifest = manifest_match.group(1)
+        serial_match = re.search(r"Serial Number:\s*([0-9A-Za-z]+)", manifest)
+        return serial_match.group(1).strip() if serial_match else None
     match = re.search(r"Serial Number:\s*([0-9A-Za-z]+)", html_text)
     return match.group(1).strip() if match else None
+
+def get_manifest_from_status(html_text):
+    manifest_match = re.search(r'var\s+plumAPlusDeviceManifest\s*=\s*"([^"]*)"', html_text, re.DOTALL)
+    return manifest_match.group(1) if manifest_match else None
+
+def format_manifest_for_display(manifest_text):
+    if not manifest_text:
+        return None
+    # Manifest is embedded with escaped newlines/tabs.
+    pretty = manifest_text.replace("\\n", "\n").replace("\\t", "    ")
+    return pretty.strip()
 
 def is_valid_asset_number(value):
     return bool(re.fullmatch(r"\d{6}", str(value).strip()))
 
-def prompt_for_asset_number():
+def prompt_for_asset_number(manifest_text=None):
+    pretty_manifest = format_manifest_for_display(manifest_text)
+    if pretty_manifest:
+        console.print("[bold cyan]=  Device Manifest (from status page):[/bold cyan]")
+        console.print(pretty_manifest)
+        console.print("")
     while True:
         console.print("[bold yellow]=  Device asset number is not set. Enter the 6-digit asset number:[/bold yellow]")
         entered = input(">> ").strip()
@@ -400,17 +421,19 @@ def configure_device(ip):
             device_name = device_name.group(1).strip()
         else:
             device_name = "Unknown"
-        if not is_valid_asset_number(device_name):
-            status_page, _status_fatal = get_step(f"{base_url}/hsp-phx-ce-status.html", "status_get")
-            if status_page and status_page.text:
-                serial = get_serial_from_status(status_page.text)
-                if serial:
-                    mapped_asset = ASSET_BY_SERIAL.get(serial)
-                    if mapped_asset and is_valid_asset_number(mapped_asset):
-                        console.print(f"[green]=  Resolved asset {mapped_asset} from serial {serial}[/green]")
-                        device_name = mapped_asset
             if not is_valid_asset_number(device_name):
-                device_name = prompt_for_asset_number()
+                status_page, _status_fatal = get_step(f"{base_url}/hsp-phx-ce-status.html", "status_get")
+                manifest_text = None
+                if status_page and status_page.text:
+                    serial = get_serial_from_status(status_page.text)
+                    manifest_text = get_manifest_from_status(status_page.text)
+                    if serial:
+                        mapped_asset = ASSET_BY_SERIAL.get(serial)
+                        if mapped_asset and is_valid_asset_number(mapped_asset):
+                            console.print(f"[green]=  Resolved asset {mapped_asset} from serial {serial}[/green]")
+                            device_name = mapped_asset
+            if not is_valid_asset_number(device_name):
+                device_name = prompt_for_asset_number(manifest_text)
         status["BEIC"] = device_name
 
         identity, password = resolve_credentials(device_name)
