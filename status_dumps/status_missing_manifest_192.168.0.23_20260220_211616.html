@@ -1,0 +1,385 @@
+<!doctype html>
+<html>
+<head>
+<meta content="text/html; charset=ISO-8859-1" http-equiv="content-type">
+<meta http-equiv="X-UA-Compatible" content="IE=Edge">
+<title>Communication Engine Configuration - Administration</title>
+<script type="text/javascript"><!-- 
+var challengeQues = "Set to factory default value. Please see the manual"; 
+var webPass = ""; 
+var sessionType = "Default Biomed User"; 
+var challengeRes = ""; 
+var webUser = "biomed"; 
+--> 
+</script>
+<script type="text/javascript">
+var g_ButtonClickCount = 1;
+
+var mismatchAlert = "The 'Web Password' and 'Confirm Password' values are different. They must match.";
+var invalidWebPassAlert = "Invalid password, please enter valid password. An ASCII string 1-20 characters long.";
+var invalidConfirmPassAlert = "Invalid password, please enter valid password. An ASCII string 1-20 characters long.";
+var invalidChallengeResAlert = "Invalid Challenge Response, please enter an Alphanumeric character string 1-255 characters long.";
+var invalidChallengeQuesAlert = "Invalid Challenge Question, please enter an Ascii character string 1-255 characters long.";
+
+var asciiPattern = "^[\\x21-\\x7E]";
+var asciiWithSpacesPattern = "^[\\x20-\\x7E]";
+var alphaNumPattern = "^[a-zA-Z\\d]";
+
+function setValues(frm)
+{
+	 frm.webUser.value = webUser;
+	 frm.challengeQues.value = challengeQues;
+	 frm.challengeRes.value = challengeRes;
+}
+
+function formReset(frm)
+{
+	frm.reset();
+	onFormLoad(frm);
+}
+
+function getCookie(name)
+{
+	var nameEQ = name + "=";
+    var ca = document.cookie.split(';');
+    for(var i=0;i < ca.length;i++) {
+        var c = ca[i];
+        while (c.charAt(0)==' ') c = c.substring(1,c.length);
+        if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length,c.length);
+    }
+    return "";
+}
+
+function onFormLoad(frm)
+{
+   g_ButtonClickCount = 1;
+   setValues(frm);	
+   g_ButtonClickCount = 0;
+   if(isDefaultSession())
+   {
+	   setButtonDisabled(true);
+	   document.getElementById("cmdFinish").disabled = false;
+   }
+   else
+   {
+   	   setButtonDisabled( false );
+   }
+}
+
+function isDefaultSession()
+{
+	return (getCookie('SessionType') == "DEFAULT" || getCookie('SessionType') == "");
+}
+
+function isPasswordFieldValid ( frm, notEmpty )
+{
+   return arePasswordsValid(frm.webPass.value, frm.confirmPass.value, notEmpty);
+}
+
+function areReqdFieldsValid( frm, notEmpty )
+{
+	return isChallengeResValid(frm.challengeRes.value, notEmpty) && isChallengeQuesValid(frm.challengeQues.value, notEmpty);
+}
+
+function isFormValid ( frm )
+{
+   var valid = isPasswordFieldValid(frm, isDefaultSession()) && areReqdFieldsValid(frm, false);
+   return valid;
+}
+
+function onButtonClick(arg)
+{
+   if ( g_ButtonClickCount == 0 && isFormValid ( document.FormAdmin ) )
+   {
+      g_ButtonClickCount++;
+      setButtonDisabled( true );
+
+      document.FormAdmin.NextPage.value = arg;
+      document.FormAdmin.submit();
+   }
+}
+function setButtonDisabled(bValue)
+{
+   id = document.getElementById("cmdPrev"); if ( id ) { id.disabled = bValue; }
+   id = document.getElementById("cmdNext"); if ( id ) { id.disabled = bValue; }
+   id = document.getElementById("cmdReset"); if ( id ) { id.disabled = bValue; }
+   id = document.getElementById("cmdFinish"); if ( id ) { id.disabled = bValue; }
+}
+
+function handleMenuClick(arg)
+{
+	if(isDefaultSession())
+	   {
+		   return false;
+	   }
+	   else
+	   {
+	   	  onButtonClick(arg);
+	   }
+}
+
+function arePasswordsValid(inputPass, confirmPass, notEmpty)
+{
+	if(!isPasswordValid(inputPass, notEmpty))
+	{
+		alert(invalidWebPassAlert);
+		return false;
+	}
+	if(!isPasswordValid(confirmPass, notEmpty))
+	{
+		alert(invalidConfirmPassAlert);
+		return false;
+	}
+	if(inputPass!=confirmPass)
+	{
+		alert(mismatchAlert);
+		return false;
+	}
+	return true;
+}
+
+function isAscii(inputStr, notEmpty, includeSpaces)
+{	
+	var patternStr = (includeSpaces)? asciiWithSpacesPattern : asciiPattern;
+	pattern = (notEmpty)? new RegExp(patternStr+"+$") : new RegExp(patternStr+"*$");
+	return pattern.test(inputStr);
+}
+
+function isAlphaNumeric(txt, notEmpty)
+{
+	var pattern = (notEmpty)? new RegExp(alphaNumPattern+"+$") : new RegExp(alphaNumPattern+"*$");
+	return pattern.test(txt);
+}
+
+function isPasswordValid(inputPass, notEmpty)
+{
+  return isAscii(inputPass, notEmpty, false) && inputPass.length <= 20;
+}
+
+function isChallengeQuesValid(inputQues, notEmpty)
+{
+  var valid = isAscii(inputQues, notEmpty, true) && inputQues.length <= 255;
+  if(!valid)
+  {
+	  alert(invalidChallengeQuesAlert);
+  }
+  return valid;
+}
+
+function isChallengeResValid(inputRes, notEmpty)
+{
+  var valid = isAlphaNumeric(inputRes, notEmpty) && inputRes.length <= 255;
+  if(!valid)
+  {
+	  alert(invalidChallengeResAlert);
+  }
+  return valid;
+}
+
+</script>
+</head>
+<body onload="onFormLoad(document.FormAdmin)"
+	style="color: rgb(0, 0, 0); background-color: rgb(192, 192, 192);"
+	alink="#cccccc" link="#cccccc" vlink="#cccccc">
+	<table style="text-align: left; width: 942px; height: 502px;"
+		border="0" cellpadding="2" cellspacing="2">
+		<tbody>
+			<tr>
+				<td
+					style="height: 30px; background-color: rgb(106, 67, 122); width: 932px;"><span
+					style="text-decoration: underline; color: rgb(204, 204, 204);"></span><span
+					style="color: rgb(204, 204, 204);">&nbsp;&nbsp;<font
+						style="font-weight: bold; font-style: italic;" size="+1"><span
+							style="font-family: Arial;"></span></font></span><span
+					style="color: rgb(204, 204, 204);"><font
+						style="font-weight: bold; font-style: italic;" size="+1"><span
+							style="font-family: Arial;">Connectivity</span></font></span><span
+					style="color: rgb(204, 204, 204);"><font
+						style="font-weight: bold; font-style: italic;" size="+1"><span
+							style="font-family: Arial;"> Configuration</span></font></span><span
+					style="color: rgb(204, 204, 204); float: right; padding-right:10px"><font
+						style="font-weight: bold; font-style: italic;" size="+1"><span
+							style="font-family: Arial;">Default Biomed User</span></font></span></td>
+			</tr>
+			<tr>
+				<td style="height: 428px; width: 932px;">
+					<table style="text-align: left; width: 963px; height: 412px;"
+						border="0" cellpadding="10" cellspacing="10">
+						<tbody>
+							<tr>
+								<td
+									style="width: 170px; background-color: rgb(153, 153, 153); text-align: center; vertical-align: top;"><img
+									style="border: 2px solid; border-color: #cccccc; width: 180px; height: 80px;"
+									alt="Plum Logo" src="logo.gif">
+									<table style="text-align: left; width: 100%;" border="0"
+										cellpadding="2" cellspacing="6">
+										<tbody>
+											<tr>
+												<td align="center" valign="undefined"><a id="statusLink"
+													 onclick='handleMenuClick("status")' onmouseover="this.style.cursor='pointer'"
+													style="font-weight: bold; font-family: Arial; color: rgb(255, 255, 255); cursor: pointer;">Status</a></td>
+											</tr>
+											<tr>
+												<td align="center" valign="undefined"><a id="ethernetLink"
+													 onclick='handleMenuClick("eth")' onmouseover="this.style.cursor='pointer'"
+													style="font-weight: bold; font-family: Arial; color: rgb(255, 255, 255); cursor: pointer;">Ethernet</a></td>
+											</tr>
+											<tr>
+												<td style="text-align: center;"><a id="wirelessLink"
+													 onclick='handleMenuClick("wlan")' onmouseover="this.style.cursor='pointer'"
+													style="font-weight: bold; font-family: Arial; color: rgb(255, 255, 255); cursor: pointer;">Wireless</a>
+												</td>
+											</tr>
+											<tr>
+												<td style="text-align: center;"><a id="securityLink"
+													 onclick='handleMenuClick("privacy")' onmouseover="this.style.cursor='pointer'"
+													style="font-weight: bold; font-family: Arial; color: rgb(255, 255, 255); cursor: pointer;">Security</a>
+												</td>
+											</tr>
+											<tr>
+												<td align="center" valign="undefined"><a id="certificatesLink"
+													 onclick='handleMenuClick("cert")' onmouseover="this.style.cursor='pointer'"
+													style="font-weight: bold; font-family: Arial; color: rgb(255, 255, 255); cursor: pointer;">Certificates</a>
+												</td>
+											</tr>
+											<tr>
+												<td align="center" valign="undefined"><a id="hmssLink"
+													 onclick='handleMenuClick("mmu")' onmouseover="this.style.cursor='pointer'"
+													style="font-weight: bold; font-family: Arial; color: rgb(255, 255, 255); cursor: pointer;">HMSS</a></td>
+											</tr>
+											<tr>
+												<td align="center" valign="undefined"><a id="serviceLink"
+													 onclick='handleMenuClick("service")' onmouseover="this.style.cursor='pointer'"
+													style="font-weight: bold; font-family: Arial; color: rgb(255, 255, 255); cursor: pointer;">Service</a>
+												</td>
+											</tr>
+											<tr>
+												<td align="center" valign="undefined"><label><span id="adminLink"
+														style="font-weight: bold; font-family: Arial; color: rgb(106, 67, 122);">Administration</span></label></td>
+											</tr>
+											<tr>
+												<td align="center" valign="undefined"><a id="logoutLink"
+													 onclick='onButtonClick("logout")' onmouseover="this.style.cursor='pointer'"
+													style="font-weight: bold; font-family: Arial; color: rgb(255, 255, 255); cursor: pointer;">Log Out</a></td>
+											</tr>
+											<tr>
+												<td align="center" valign="undefined">&nbsp;</td>
+											</tr>
+											<tr>
+												<td align="center" valign="undefined">&nbsp;</td>
+											</tr>
+											<tr>
+												<td align="center" valign="undefined">&nbsp;</td>
+											</tr>
+										</tbody>
+									</table></td>
+								<td style="width: 773px; vertical-align: top;"><font
+									style="color: rgb(106, 67, 122); font-weight: bold; font-style: italic;"
+									size="+2"><span style="font-family: Arial;"></span></font><font
+									style="color: rgb(106, 67, 122); font-weight: bold; font-style: italic;"><span
+										style="font-family: Arial;"></span></font><font
+									style="color: rgb(106, 67, 122); font-weight: bold; font-style: italic;"><span
+										style="font-family: Arial;"></span></font>
+									<table style="text-align: left; width: 100%;" border="0"
+										cellpadding="2" cellspacing="2">
+										<tbody>
+											<tr>
+												<td style="text-align: left;"><font
+													style="color: rgb(106, 67, 122); font-weight: bold; font-style: italic;"
+													size="+2"><span style="font-family: Arial;">Administration
+															Properties</span></font></td>
+											</tr>
+											<tr>
+                                                    <td><font style="color: rgb(106, 67, 122);"><span
+                                                            style="font-family: Arial;">Change your Password Below:<br /><br /></span></font></td>
+                                                </tr>
+											<tr>
+												<td>
+													<form method="post" action="formAdminProc" name="FormAdmin"
+														onreset="javascript:return false;">
+														<table style="text-align: left; width: 100%;" border="0"
+															cellpadding="0" cellspacing="0">
+															<tr>
+																<td style="width: 200px;"></td>
+																<td style="width: 484px;"></td>
+															</tr>
+															<tr>
+																<td
+																	style="width: 120px; height: 26px; font-family: Arial; font-weight: bold; color: rgb(106, 67, 122);">
+																	Web User:</td>
+																<td style="width:484px;"><input maxlength="31"
+																	name="webUser" readonly="readonly" style="width:320px;background-color:LightGray;"></td>
+															</tr>
+															<tr>
+																<td
+																	style="width: 200px; height: 26px; font-family: Arial; font-weight: bold; color: rgb(106, 67, 122);">
+																	Web Password:</td>
+																<td style="width: 484px;"><input maxlength="20"
+																	name="webPass" type="password" style="width:320px" 
+																	></td>
+															</tr>
+															<tr>
+																<td
+																	style="width: 200px; height: 26px; font-family: Arial; font-weight: bold; color: rgb(106, 67, 122);">
+																	Confirm Password:</td>
+																<td style="width: 484px;"><input maxlength="20"
+																	name="confirmPass" type="password" style="width:320px" ></td>
+															</tr>
+															<tr>
+																<td
+																	style="width: 200px; height: 26px; font-family: Arial; font-weight: bold; color: rgb(106, 67, 122);">
+																	Challenge Question:</td>
+																<td style="width: 484px;"><input 
+																	name="challengeQues" type="text" value="Set to factory default value. Please see the manual" style="width:320px;" ></td>
+															</tr>
+															<tr>
+																<td
+																	style="width: 200px; height: 26px; font-family: Arial; font-weight: bold; color: rgb(106, 67, 122);">
+																	Challenge Response:</td>
+																<td style="width: 484px;"><input 
+																	name="challengeRes" type="password" style="width:320px" ></td>
+															</tr>
+															<tr>
+																<td><input name="NextPage" type="hidden"></td>
+															</tr>
+
+														</table>
+													</form>
+												</td>
+											</tr>
+
+											<tr>
+												<td></td>
+											</tr>
+
+										</tbody>
+									</table></td>
+							</tr>
+							<tr>
+								<td
+									style="width: 170px; background-color: rgb(153, 153, 153); text-align: center; vertical-align: top; color: rgb(0, 0, 0);"><font
+									size="+1"></font></td>
+								<td
+									style="width: 773px; vertical-align: top; background-color: rgb(153, 153, 153); text-align: left;">
+									<button onclick='onButtonClick("prev")' id="cmdPrev"
+										disabled="true">&lt;&nbsp;Previous</button>&nbsp;
+									<button onmousedown='formReset(document.FormAdmin)' id="cmdReset"
+										type="button" disabled="true">Reset</button>&nbsp;
+									<button onclick='onButtonClick("finish")' id="cmdFinish"
+										disabled="true">Finish</button>&nbsp;
+									<button onclick='onButtonClick("next")' id="cmdNext"
+										disabled="true">Next&nbsp;&gt;</button>
+								</td>
+							</tr>
+						</tbody>
+					</table>
+				</td>
+			</tr>
+			<tr>
+				<td
+					style="width: 932px; background-color: rgb(106, 67, 122); height: 10px;"></td>
+			</tr>
+		</tbody>
+	</table>
+</body>
+</html>

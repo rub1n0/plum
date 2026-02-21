@@ -262,6 +262,49 @@ def write_status_dump(html_text, ip, label="status"):
     except Exception:
         logging.exception("Failed to write status page dump for ip=%s", ip)
 
+def fetch_status_page(session, base_url):
+    target_url = f"{base_url}/hsp-phx-ce-status.html"
+    resp = session.get(target_url, timeout=REQUEST_TIMEOUT)
+    try:
+        logging.error(
+            "Status GET url=%s final_url=%s status=%s content_type=%s response_len=%s",
+            target_url,
+            getattr(resp, "url", None),
+            getattr(resp, "status_code", None),
+            resp.headers.get("Content-Type") if resp is not None else None,
+            len(resp.text or "") if resp is not None else 0
+        )
+        if resp is not None:
+            snippet = (resp.text or "")[:200].replace("\r", " ").replace("\n", " ")
+            logging.error("Status GET snippet: %s", snippet)
+    except Exception:
+        logging.exception("Failed to log status GET details for url=%s", target_url)
+
+    if resp is not None and resp.url == target_url and resp.status_code < 400:
+        return resp
+
+    # More direct attempt: no redirects, log location if any, then fetch explicitly.
+    direct = session.get(target_url, timeout=REQUEST_TIMEOUT, allow_redirects=False)
+    try:
+        logging.error(
+            "Status GET direct url=%s status=%s location=%s response_len=%s",
+            target_url,
+            getattr(direct, "status_code", None),
+            direct.headers.get("Location") if direct is not None else None,
+            len(direct.text or "") if direct is not None else 0
+        )
+    except Exception:
+        logging.exception("Failed to log direct status GET details for url=%s", target_url)
+
+    if direct is not None and direct.status_code in (301, 302, 303, 307, 308):
+        location = direct.headers.get("Location")
+        if location:
+            follow = session.get(location, timeout=REQUEST_TIMEOUT)
+            return follow
+
+    # Final explicit fetch with no-cache hint.
+    return session.get(target_url, timeout=REQUEST_TIMEOUT, headers={"Cache-Control": "no-cache"})
+
 def format_manifest_for_display(manifest_text):
     if not manifest_text:
         return None
@@ -464,7 +507,7 @@ def configure_device(ip):
             error_alert_tune()
             return status
 
-        console.print(f"[green] Login successful for {ip}[/green]")
+        console.print(f"[green]Login successful for {ip}[/green]")
         status["Login"] = "Success"
         device_name = re.search(r'var\s+deviceName\s*=\s*"([^"]+)"', resp.text)
         if device_name:
@@ -472,7 +515,13 @@ def configure_device(ip):
         else:
             device_name = "Unknown"
             if not is_valid_asset_number(device_name):
-                status_page, _status_fatal = get_step(f"{base_url}/hsp-phx-ce-status.html", "status_get")
+                status_page = None
+                _status_fatal = False
+                try:
+                    status_page = fetch_status_page(session, base_url)
+                except Exception:
+                    _status_fatal = True
+                    logging.exception("Status GET failed (status_get) url=%s", f"{base_url}/hsp-phx-ce-status.html")
                 manifest_text = None
                 if status_page and status_page.text:
                     serial = get_serial_from_status(status_page.text)
@@ -649,7 +698,7 @@ def display_colored_banner():
                | |_) | |  | | | | |\/| |  _ \| | | || |  
                |  __/| |__| |_| | |  | | |_) | |_| || |  
                |_|   |_____\___/|_|  |_|____/ \___/ |_| 
-                    THE CONFIG-ER-NATOR OF PLUMS!
+                    THE CONFIG-ER-RATOR OF PLUMS!
     =============================================================
     """
     console.print(banner, style="purple")
@@ -671,7 +720,7 @@ def show_checked_interfaces(interfaces, label_active=None):
     table.add_column("Status", style="yellow")
 
     for iface, subnet in interfaces:
-        status = " Selected" if label_active and ipaddress.ip_network(subnet) == ipaddress.ip_network(label_active) else ""
+        status = "Selected" if label_active and ipaddress.ip_network(subnet) == ipaddress.ip_network(label_active) else ""
         table.add_row(iface, subnet, status)
 
     console.print(table)
@@ -808,7 +857,7 @@ if __name__ == "__main__":
         beep_triumph()
         time.sleep(0.25)
         game_over_tune()
-        console.print("[bold green]<  Thank you for using the Plum Config-u-rator! Goodbye![/bold green]")
+        console.print("[bold green]<  Thank you for using the Plum Config-er-rator! Goodbye![/bold green]")
     except KeyboardInterrupt:
         console.print("\n[bold yellow]=  Exiting at user request.[/bold yellow]")
         logging.error("User requested exit via KeyboardInterrupt.")
