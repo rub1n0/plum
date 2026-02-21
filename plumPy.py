@@ -258,6 +258,14 @@ def format_manifest_for_display(manifest_text):
 def is_valid_asset_number(value):
     return bool(re.fullmatch(r"\d{6}", str(value).strip()))
 
+def get_user_input(prompt, allow_exit=True):
+    user_input = input(prompt).strip()
+    if allow_exit and user_input.lower() in {"q", "quit", "exit"}:
+        console.print("[bold yellow]=  Exiting at user request.[/bold yellow]")
+        logging.error("User requested exit via input.")
+        raise SystemExit(0)
+    return user_input
+
 def prompt_for_asset_number(manifest_text=None):
     pretty_manifest = format_manifest_for_display(manifest_text)
     if pretty_manifest:
@@ -266,7 +274,7 @@ def prompt_for_asset_number(manifest_text=None):
         console.print("")
     while True:
         console.print("[bold yellow]=  Device asset number is not set. Enter the 6-digit asset number:[/bold yellow]")
-        entered = input(">> ").strip()
+        entered = get_user_input(">> ")
         if is_valid_asset_number(entered):
             return entered
         console.print("[red]Invalid asset number. Please enter exactly 6 digits.[/red]")
@@ -628,7 +636,7 @@ def display_colored_banner():
 
 def get_ip_list_from_user():
     console.print("\n[bold cyan]=  Enter a comma-separated list of IPs (e.g., 192.168.1.10,192.168.1.12):[/bold cyan]")
-    ip_input = input(">> ").strip()
+    ip_input = get_user_input(">> ")
     return [ip.strip() for ip in ip_input.split(",") if ip.strip()]
 
 def show_checked_interfaces(interfaces, label_active=None):
@@ -666,7 +674,7 @@ def get_user_selected_interface(interfaces, active_subnet=None):
     console.print(table)
     while True:
         try:
-            choice = int(input("Enter the index of the interface you want to scan: ").strip())
+            choice = int(get_user_input("Enter the index of the interface you want to scan: "))
             if 0 <= choice < len(interfaces):
                 return interfaces[choice][1]  # Return the selected subnet
             else:
@@ -687,19 +695,20 @@ if __name__ == "__main__":
     victory_fanfare()
     display_colored_banner()
 
-    WPA_SECRETS = load_wpa_secrets(passphrase)
-    if not WPA_SECRETS:
-        console.log("[red]Fatal: WPA secrets failed to load. Exiting.[/red]")
-        exit(1)
+    try:
+        WPA_SECRETS = load_wpa_secrets(passphrase)
+        if not WPA_SECRETS:
+            console.log("[red]Fatal: WPA secrets failed to load. Exiting.[/red]")
+            exit(1)
 
-    selected_subnet = None
-    manual_ips = None
+        selected_subnet = None
+        manual_ips = None
 
-    while True:
-        all_detected_interfaces = []
-        subnets = []
-        EXCLUDED_IF_NAMES = {"lo", "docker0"}
-        EXCLUDED_PREFIXES = ("br-", "vbox", "vmnet", "zt", "wg", "TAP", "tun", "npcap", "npf", "Loopback")
+        while True:
+            all_detected_interfaces = []
+            subnets = []
+            EXCLUDED_IF_NAMES = {"lo", "docker0"}
+            EXCLUDED_PREFIXES = ("br-", "vbox", "vmnet", "zt", "wg", "TAP", "tun", "npcap", "npf", "Loopback")
 
         for interface, snics in psutil.net_if_addrs().items():
             if interface in EXCLUDED_IF_NAMES or interface.startswith(EXCLUDED_PREFIXES):
@@ -718,63 +727,66 @@ if __name__ == "__main__":
                         continue
 
         # Ask whether to target specific IPs or scan an interface
-        if manual_ips is None and not selected_subnet:
-            console.print("[bold yellow]= Do you want to target specific IPs instead of scanning an interface? (y/n)[/bold yellow]")
-            choice = input(">> ").strip().lower()
-            if choice == "y":
-                manual_ips = get_ip_list_from_user()
-                if not manual_ips:
-                    console.print("[red]No valid IPs provided. Exiting.[/red]")
-                    exit(1)
+            if manual_ips is None and not selected_subnet:
+                console.print("[bold yellow]= Do you want to target specific IPs instead of scanning an interface? (y/n)[/bold yellow]")
+                choice = get_user_input(">> ").lower()
+                if choice == "y":
+                    manual_ips = get_ip_list_from_user()
+                    if not manual_ips:
+                        console.print("[red]No valid IPs provided. Exiting.[/red]")
+                        exit(1)
+                else:
+                    selected_subnet = get_user_selected_interface(all_detected_interfaces, active_subnet=selected_subnet)
+                    if not selected_subnet:
+                        console.print("[red]No interface selected. Exiting.[/red]")
+                        exit(1)
+
+            if manual_ips is not None:
+                devices = manual_ips
+                console.print(f"[green]=  Using manual IP targets:[/green] {', '.join(devices)}")
             else:
-                selected_subnet = get_user_selected_interface(all_detected_interfaces, active_subnet=selected_subnet)
-                if not selected_subnet:
-                    console.print("[red]No interface selected. Exiting.[/red]")
-                    exit(1)
+                console.print(f"[green]=  Scanning subnet:[/green] {selected_subnet}")
+                devices = scan_subnet(selected_subnet)
 
-        if manual_ips is not None:
-            devices = manual_ips
-            console.print(f"[green]=  Using manual IP targets:[/green] {', '.join(devices)}")
-        else:
-            console.print(f"[green]=  Scanning subnet:[/green] {selected_subnet}")
-            devices = scan_subnet(selected_subnet)
+            results = [configure_device(ip) for ip in devices]
+            robot_alert()
 
-        results = [configure_device(ip) for ip in devices]
-        robot_alert()
+            if not results:
+                console.print("[blue] No devices were found or responded in this subnet.[/blue]")
+                console.print("[bold yellow]= Do you want to choose a different interface? (y/n)[/bold yellow]")
+                try_again = get_user_input(">> ").lower()
+                if try_again == "y":
+                    selected_subnet = None
+                    manual_ips = None
+                    continue
+                else:
+                    break
+            else:
+                saved = save_log(results)
+                if saved:
+                    show_summary(results)
+                beep_triumph()
 
-        if not results:
-            console.print("[blue] No devices were found or responded in this subnet.[/blue]")
-            console.print("[bold yellow]= Do you want to choose a different interface? (y/n)[/bold yellow]")
-            try_again = input(">> ").strip().lower()
-            if try_again == "y":
+            console.print("\n[bold yellow]= Do you want to run the script again? (y/n) [type 'c' to change interface][/bold yellow]")
+            answer = get_user_input(">> ").lower()
+            if answer == "c":
                 selected_subnet = None
                 manual_ips = None
                 continue
+            elif answer == "y":
+                for iface, subnet in all_detected_interfaces:
+                    if ipaddress.ip_network(subnet) == ipaddress.ip_network(selected_subnet):
+                        show_checked_interfaces([(iface, subnet)], label_active=selected_subnet)
+                        break
+                retry_prompt_tune()
+                continue
             else:
                 break
-        else:
-            saved = save_log(results)
-            if saved:
-                show_summary(results)
-            beep_triumph()
 
-        console.print("\n[bold yellow]= Do you want to run the script again? (y/n) [type 'c' to change interface][/bold yellow]")
-        answer = input(">> ").strip().lower()
-        if answer == "c":
-            selected_subnet = None
-            manual_ips = None
-            continue
-        elif answer == "y":
-            for iface, subnet in all_detected_interfaces:
-                if ipaddress.ip_network(subnet) == ipaddress.ip_network(selected_subnet):
-                    show_checked_interfaces([(iface, subnet)], label_active=selected_subnet)
-                    break
-            retry_prompt_tune()
-            continue
-        else:
-            break
-
-    beep_triumph()
-    time.sleep(0.25)
-    game_over_tune()
-    console.print("[bold green]<  Thank you for using the Plum Config-u-rator! Goodbye![/bold green]")
+        beep_triumph()
+        time.sleep(0.25)
+        game_over_tune()
+        console.print("[bold green]<  Thank you for using the Plum Config-u-rator! Goodbye![/bold green]")
+    except KeyboardInterrupt:
+        console.print("\n[bold yellow]=  Exiting at user request.[/bold yellow]")
+        logging.error("User requested exit via KeyboardInterrupt.")
