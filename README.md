@@ -1,3 +1,17 @@
+```text
+=============================================================
+            ____  _    _   _ __  __ ____   ___ _____ 
+           |  _ \| |  | | | |  \/  | __ ) / _ \_   _|
+           | |_) | |  | | | | |\/| |  _ \| | | || |  
+           |  __/| |__| |_| | |  | | |_) | |_| || |  
+           |_|   |_____\___/|_|  |_|____/ \___/ |_| 
+                THE CONFIG-ER-RATOR OF PLUMS!
+=============================================================
+    The Jennifer "Packet Maven" Lemelle and Brandon "Kernel" Chorny
+          Memorial Plumbot Infusion Device Programmer Version
+                      Commit. Compile. Conquer.
+```
+
 # Plum Configurator
 
 A CLI tool to configure Plum 360 infusion devices over a subnet or a manual IP list. It automates admin credential setup, re-authentication, and network configuration while recording results and diagnostics.
@@ -18,13 +32,13 @@ A CLI tool to configure Plum 360 infusion devices over a subnet or a manual IP l
 
 ## Key Files
 
-- `plumPy.py` — main script
-- `config.ini` — wireless/security/admin/HMMS configuration
-- `assets.csv` — device asset and facility mapping (serial in column 4)
-- `.env` — device login + fallback credentials (ignored by git)
-- `device_log_YYYY-MM-DD.csv` — per-run results
-- `plumPy_error.log` — detailed diagnostics
-- `status_dumps/` — HTML dumps when status page parsing fails
+- `plumPy.py` ? main script
+- `config.ini` ? wireless/security/admin/HMMS configuration
+- `assets.csv` ? device asset and facility mapping (serial in column 4)
+- `.env` ? device login + fallback credentials (ignored by git)
+- `device_log_YYYY-MM-DD.csv` ? per-run results
+- `plumPy_error.log` ? detailed diagnostics
+- `status_dumps/` ? HTML dumps when status page parsing fails
 
 ## Setup
 
@@ -124,7 +138,7 @@ You can exit at any prompt with `q`, `quit`, or `exit`. `Ctrl+C` exits cleanly a
 
 ### Status page not parsed / manifest missing
 
-If the device status page returns the **Administration** page (common when session defaults to admin), the manifest won’t be found. The script will write the returned HTML to:
+If the device status page returns the **Administration** page (common when session defaults to admin), the manifest won?t be found. The script will write the returned HTML to:
 
 ```
 status_dumps/status_missing_manifest_<ip>_<timestamp>.html
