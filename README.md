@@ -1,77 +1,64 @@
 # Plum Configurator
 
-🎛️ Automatically configure Plum 360 infusion devices over a subnet or via manual IP entry using a secure and flexible tool.
+A CLI tool to configure Plum 360 infusion devices over a subnet or a manual IP list. It automates admin credential setup, re-authentication, and network configuration while recording results and diagnostics.
 
-## Features
+## What It Does (Current Behavior)
 
-- 🔎 Detects devices via subnet scanning or manual IP list
-- 🔐 Configures SSID, WPA2 identity, and EAP settings per facility
-- 🧠 Supports encrypted vaults for facility-specific passwords using `Fernet`
-- 🎨 Rich CLI interface with styled output and audio feedback (Windows beeps) using `rich`
-- 📄 Outputs detailed configuration logs to CSV
-- ♻️ Loop logic with optional rerun prompts
-- 🔑 .env file supports fallback credentials
-- ⚙️ Configuration is driven by `.env`, `assets.csv`, `config.ini`, and `wpa_secrets.enc`
+- Logs in with the initial device credentials from `.env`.
+- Configures **Administration** settings first (Web User, Web Password, Challenge Q/A).
+- Verifies admin settings by re-fetching the admin page and checking key fields.
+- Re-authenticates using the **new Web Password** (with fallback to the original password if needed, logged in `plumPy_error.log`).
+- Resolves the device name:
+  - Uses the login page `deviceName` when present.
+  - If missing or not 6 digits, fetches the status page and extracts the serial from `plumAPlusDeviceManifest`.
+  - If still missing, prompts for a 6-digit asset number and prints the manifest for operator context.
+- Configures **network settings** (WLAN, security/EAP, Ethernet) only after re-authentication.
+- Configures HMMS settings once network configuration completes.
+- Writes a CSV log per run and a detailed error log for troubleshooting.
 
-## Files
+## Key Files
 
-- `plumPy.py` — main script
-- `config.ini` — wireless and security configuration
-- `assets.csv` — maps device names to facilities
-- `.env` — contains fallback credentials (excluded via .gitignore)
-- `device_log_*.csv` — timestamped configuration results
+- `plumPy.py` � main script
+- `config.ini` � wireless/security/admin/HMMS configuration
+- `assets.csv` � device asset and facility mapping (serial in column 4)
+- `.env` � device login + fallback credentials (ignored by git)
+- `device_log_YYYY-MM-DD.csv` � per-run results
+- `plumPy_error.log` � detailed diagnostics
+- `status_dumps/` � HTML dumps when status page parsing fails
 
-## Usage
+## Setup
 
-Run the script and follow the interactive prompts to configure devices automatically or from a provided IP list.
-
-```bash
-python plumPy.py
-```
-
-## License
-
-MIT
-
-
-## Setup Instructions
-
-### 1. Install Python Dependencies
-
-Create a virtual environment (optional but recommended):
+### 1. Python Environment
 
 ```bash
 python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
-```
-
-Install required Python packages:
-
-```bash
+venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Create `.env` File
+### 2. `.env`
 
-Create a `.env` file in the project root with the following format:
+Create `.env` in the project root:
 
 ```env
-# Device web interface login
-DEVICE_USERNAME=deviceuser
-DEVICE_PASSWORD=devicepass
+# Initial device web interface login
+DEVICE_USERNAME=biomed
+DEVICE_PASSWORD=your_device_password
 
-# Fallback WPA2-Enterprise identity and password
-WPA2_IDENTITY=failed
-WPA2_PASSWORD=failed
+# Fallback WPA2-Enterprise identity/password
+WPA2_IDENTITY=svcICUPlum360-XX
+WPA2_PASSWORD=your_fallback_password
 
-# Optional fallback passwords (used if encrypted secrets are missing)
-svcAcct1_PASSWORD=password1
-svcAcct2_PASSWORD=password2
+# Passphrase for encrypted WPA secrets
+WPA_SECRET_PASSPHRASE=yourSuperSecurePassphrase
+
+# Optional: default subnet to scan
+# DEFAULT_SUBNET=192.168.1.0/24
 ```
 
-### 3. Create `config.ini`
+### 3. `config.ini`
 
-Define wireless and security configuration in a file named `config.ini`:
+Example:
 
 ```ini
 [Wireless]
@@ -85,60 +72,92 @@ Encryption = CCMP
 EAPType = peap
 ValidateCert = 0
 AnonymousIdentity =
+
+[Admin]
+WebPassword = sg25fh
+ChallengeQuestion = What room is Biomed in?
+ChallengeResponse = c163
+
+[HMMS]
+Host = ws://sa0711v.clients.scripps.org:9292
 ```
 
-### 4. Create and Encrypt `wpa_secrets`
+### 4. WPA Secrets Vault (Optional)
 
-Prepare a JSON file `wpa_secrets.json` like:
+If you want facility-specific WPA passwords encrypted at rest:
+
+1. Create `wpa_secrets.json`:
 
 ```json
 {
-  "svcAcct1": "password1",
-  "svcAcct2": "password2",
+  "svcICUPlum360-LJ": "password1",
+  "svcICUPlum360-SD": "password2"
 }
 ```
 
-Then run the following commands:
+2. Encrypt:
 
 ```bash
-python secrets_tool.py encrypt <yourpassphrasehere>
+python secrets_tool.py encrypt <your_passphrase>
 ```
 
-This will generate:
-- `salt.bin` (your encryption key)
-- `wpa_secrets.enc` (your encrypted password vault)
+This produces:
+- `wpa_secrets.enc` (encrypted vault)
+- `salt.bin` (key derivation salt)
 
-> Both `salt.bin` and `wpa_secrets.enc` should **never be committed to Git**. They're ignored via `.gitignore`.
+Never commit `wpa_secrets.enc` or `salt.bin`.
 
+## Usage
 
-
----
-
-## 🔐 About Encryption
-
-This project uses strong encryption with a passphrase-derived key and a persistent salt:
-
-### 🔑 Key Derivation
-
-The WPA2 identity passwords are encrypted using a passphrase + a random salt (`salt.bin`) with PBKDF2-HMAC-SHA256 and 100,000 iterations. This avoids storing raw keys.
-
-### 📁 Important Files
-
-- `wpa_secrets.enc`: the encrypted password vault
-- `salt.bin`: used to derive the encryption key from the passphrase
-
-### ⚙️ Environment Variable
-
-Your passphrase should be provided via an environment variable:
-
-```env
-WPA_SECRET_PASSPHRASE=yourSuperSecurePassphrase
+```bash
+python plumPy.py
 ```
 
-This variable is used by the Python script to decrypt the `wpa_secrets.enc` file at runtime.
+You will be prompted to:
+- Choose manual IPs or an interface scan
+- Confirm admin changes
+- Confirm network changes
 
-### 🚫 Do Not Delete
+You can exit at any prompt with `q`, `quit`, or `exit`. `Ctrl+C` exits cleanly and is logged.
 
-- Never delete or overwrite `salt.bin` unless you also re-encrypt your secrets.
-- If you lose the passphrase or `salt.bin`, the encrypted secrets **cannot be recovered**.
+## Troubleshooting
 
+### Status page not parsed / manifest missing
+
+If the device status page returns the **Administration** page (common when session defaults to admin), the manifest won�t be found. The script will write the returned HTML to:
+
+```
+status_dumps/status_missing_manifest_<ip>_<timestamp>.html
+```
+
+Inspect the file to confirm the page type. The error log will record the response URL, status, content type, and a snippet.
+
+### Admin save verification
+
+After submitting `formAdminProc`, the script fetches the admin page and verifies:
+- `webUser`
+- `challengeQues`
+
+If verification fails, the run stops and logs the mismatch in `plumPy_error.log`.
+
+### Re-authentication
+
+If login with `WebPassword` fails, the script retries with `DEVICE_PASSWORD` and logs the fallback in `plumPy_error.log`.
+
+## Data Expectations
+
+`assets.csv` format (header and example):
+
+```csv
+asset,facility,state,serial
+160181,Scripps Memorial Hospital La Jolla Campus,In Service,43428773
+```
+
+The script uses:
+- Column 1 for asset number
+- Column 2 for facility name
+- Column 4 for serial number
+
+## License
+
+MIT
